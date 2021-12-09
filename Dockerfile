@@ -8,6 +8,8 @@ RUN rebar3 as prod release
 # Keep in sync with Erlang/OTP version in build image
 FROM erlang:24.1.3.0-slim
 ENV SERVICE=dominant
+ENV CHARSET=UTF-8
+ENV LANG=C.UTF-8
 COPY --from=builder /build/_build/prod/rel/${SERVICE} /opt/${SERVICE}
 WORKDIR /opt/${SERVICE}
 ENTRYPOINT []
