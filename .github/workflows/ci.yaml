@@ -14,16 +14,6 @@ jobs:
       - name: Update environment variables
         run: grep -v '^#' .env >> $GITHUB_ENV
         
-      - uses: erlef/setup-beam@v1.9
-        id: beam
-        with:
-          otp-version: ${{ env.ERLANG_VERSION }}
-          rebar3-version: 3
-
-      - uses: valitydev/action-setup-thrift@b457b89c7e1e960ea354f510bce69a725d16c556
-        with:
-          thrift-version: ${{ env.THRIFT_VERSION }}
-
       - name: Restore PLT cache
         uses: actions/cache@v2
         with:
