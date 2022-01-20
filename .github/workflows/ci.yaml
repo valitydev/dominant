@@ -26,7 +26,7 @@ jobs:
             _build/*/rebar3_*_plt
 
       - run: make wc-compile
-      - run: make wc-lint
       - run: make wc-xref
       - run: make wc-dialyze
       - run: make wdeps-test
+      - run: make wc-lint

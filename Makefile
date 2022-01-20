@@ -65,7 +65,7 @@ xref:
 	$(REBAR) xref
 
 lint:
-	DIAGNOSTIC=1 $(REBAR) lint
+	$(REBAR) lint
 
 check-format:
 	$(REBAR) fmt -c
