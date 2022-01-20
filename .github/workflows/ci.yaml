@@ -1,0 +1,41 @@
+name: Build / lint / typecheck / test
+on:
+  pull_request:
+    branches: ['*']
+
+jobs:
+  build-check-test:
+    runs-on: ubuntu-latest
+    steps:
+
+      - uses: actions/checkout@v2
+
+      # https://docs.github.com/en/actions/learn-github-actions/workflow-commands-for-github-actions#setting-an-environment-variable
+      - name: Update environment variables
+        run: grep -v '^#' .env >> $GITHUB_ENV
+        
+      - uses: erlef/setup-beam@v1.9
+        id: beam
+        with:
+          otp-version: ${{ env.ERLANG_VERSION }}
+          rebar3-version: 3
+
+      - uses: valitydev/action-setup-thrift@b457b89c7e1e960ea354f510bce69a725d16c556
+        with:
+          thrift-version: ${{ env.THRIFT_VERSION }}
+
+      - name: Restore PLT cache
+        uses: actions/cache@v2
+        with:
+          key: |
+            dialyzer-plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ github.sha }}
+          restore-keys: |
+            dialyzer-plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-
+            dialyzer-plt-${{ runner.os }}-
+          path: |
+            _build/*/rebar3_*_plt
+
+      - run: make
+      - run: make lint
+      - run: make xref
+      - run: make dialyze

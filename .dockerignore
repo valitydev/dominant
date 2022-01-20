@@ -3,3 +3,5 @@
 /.github/
 /.vscode/
 /.idea/
+erl_crash.dump
+rebar3.crashdump
