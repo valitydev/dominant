@@ -35,7 +35,8 @@ jobs:
           path: |
             _build/*/rebar3_*_plt
 
-      - run: make
-      - run: make lint
-      - run: make xref
-      - run: make dialyze
+      - run: make wc-compile
+      - run: make wc-lint
+      - run: make wc-xref
+      - run: make wc-dialyze
+      - run: make wdeps-test
