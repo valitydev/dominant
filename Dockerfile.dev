@@ -3,7 +3,7 @@ ARG ERLANG_VERSION
 FROM docker.io/library/erlang:${ERLANG_VERSION}
 
 ARG THRIFT_VERSION
-ARG TARGETARCH
+ARG TARGETARCH = "amd64"
 
 RUN echo "Architecture: $TARGETARCH"
 

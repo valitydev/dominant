@@ -13,7 +13,7 @@ SERVICE := dominant
 DOTENV := $(shell grep -v '^\#' .env)
 
 DOCKER ?= docker
-DOCKERCOMPOSE ?= docker-compose
+DOCKERCOMPOSE ?= docker compose
 REBAR ?= rebar3
 
 all: compile
