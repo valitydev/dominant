@@ -54,7 +54,7 @@ wdeps-shell: dev-image
 	$(DOCKERCOMPOSE_RUN) $(SERVICE) su; \
 	$(DOCKERCOMPOSEWENV) down
 
-wdeps-%:
+wdeps-%: dev-image
 	$(DOCKERCOMPOSE_RUN) -T $(SERVICE) make $*; \
 	res=$$?; \
 	$(DOCKERCOMPOSEWENV) down; \
