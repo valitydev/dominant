@@ -12,23 +12,24 @@ SERVICE := dominant
 # (like `wc-dialyze`) are reproducible between local machine and CI runners.
 DOTENV := $(shell grep -v '^\#' .env)
 
-DOCKER ?= docker
-DOCKERCOMPOSE ?= docker compose
-REBAR ?= rebar3
-
-all: compile
-
 # Development images
 
 DEV_IMAGE_TAG = $(SERVICE)-dev
 DEV_IMAGE_ID = $(file < .image.dev)
+
+DOCKER ?= docker
+DOCKERCOMPOSE ?= docker compose
+DOCKERCOMPOSEWENV = DEV_IMAGE_TAG=$(DEV_IMAGE_TAG) $(DOCKERCOMPOSE)
+REBAR ?= rebar3
+
+all: compile
 
 .PHONY: dev-image clean-dev-image wc-shell test
 
 dev-image: .image.dev
 
 .image.dev: Dockerfile.dev .env
-	env $(DOTENV) DEV_IMAGE_TAG=$(DEV_IMAGE_TAG) $(DOCKERCOMPOSE) build $(SERVICE)
+	env $(DOTENV) $(DOCKERCOMPOSEWENV) build $(SERVICE)
 	$(DOCKER) image ls -q -f "reference=$(DEV_IMAGE_ID)" | head -n1 > $@
 
 clean-dev-image:
@@ -41,7 +42,7 @@ DOCKER_WC_OPTIONS := -v $(PWD):$(PWD) --workdir $(PWD)
 DOCKER_WC_EXTRA_OPTIONS ?= --rm
 DOCKER_RUN = $(DOCKER) run $(DOCKER_WC_OPTIONS) $(DOCKER_WC_EXTRA_OPTIONS)
 
-DOCKERCOMPOSE_RUN = DEV_IMAGE_TAG=$(DEV_IMAGE_TAG) $(DOCKERCOMPOSE) run --use-aliases --service-ports --rm $(DOCKER_WC_OPTIONS)
+DOCKERCOMPOSE_RUN = $(DOCKERCOMPOSEWENV) run --use-aliases --service-ports $(DOCKER_WC_OPTIONS)
 
 wc-shell: dev-image
 	$(DOCKER_RUN) --interactive --tty $(DEV_IMAGE_TAG)
@@ -49,12 +50,15 @@ wc-shell: dev-image
 wc-%: dev-image
 	$(DOCKER_RUN) $(DEV_IMAGE_TAG) make $*
 
-#  TODO docker compose down doesn't work yet
 wdeps-shell: dev-image
-	$(DOCKERCOMPOSE_RUN) $(SERVICE) su
+	$(DOCKERCOMPOSE_RUN) $(SERVICE) su; \
+	$(DOCKERCOMPOSEWENV) down
 
-wdeps-%: dev-image
-	$(DOCKERCOMPOSE_RUN) $(SERVICE) make $*
+wdeps-%:
+	$(DOCKERCOMPOSE_RUN) -T $(SERVICE) make $*; \
+	res=$$?; \
+	$(DOCKERCOMPOSEWENV) down; \
+	exit $$res
 
 # Erlang-specific tasks
 
@@ -82,7 +86,7 @@ release:
 clean:
 	$(REBAR) clean
 
-distclean: clean-build-image
+distclean:
 	rm -rf _build
 
 test:
