@@ -14,17 +14,6 @@ jobs:
       - name: Update environment variables
         run: grep -v '^#' .env >> $GITHUB_ENV
         
-      - name: Restore PLT cache
-        uses: actions/cache@v2
-        with:
-          key: |
-            dialyzer-plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ github.sha }}
-          restore-keys: |
-            dialyzer-plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-
-            dialyzer-plt-${{ runner.os }}-
-          path: |
-            _build/*/rebar3_*_plt
-
       - run: make wc-compile
 
       - name: Upload project
@@ -69,6 +58,17 @@ jobs:
         with:
           name: project_files
           path: ${{ github.workspace }}
+
+      - name: Restore PLT cache
+        uses: actions/cache@v2
+        with:
+          key: |
+            dialyzer-plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ github.sha }}
+          restore-keys: |
+            dialyzer-plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-
+            dialyzer-plt-${{ runner.os }}-
+          path: |
+            _build/*/rebar3_*_plt
 
       - run: make wc-dialyze
 
