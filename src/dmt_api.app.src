@@ -10,9 +10,7 @@
         damsel,
         dmt_core,
         mg_proto,
-        erl_health,
-        prometheus,
-        prometheus_cowboy
+        erl_health
     ]},
     {mod, {dmt_api, []}},
     {env, []}
