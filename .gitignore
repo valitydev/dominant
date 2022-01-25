@@ -4,6 +4,11 @@ log
 /_checkouts/
 *~
 erl_crash.dump
+rebar3.crashdump
 .tags*
 *.sublime-workspace
 .DS_Store
+
+# make stuff
+/.image.*
+Makefile.env
