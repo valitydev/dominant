@@ -51,7 +51,7 @@ wc-%: dev-image
 	$(DOCKER_RUN) $(DEV_IMAGE_TAG) make $*
 
 wdeps-shell: dev-image
-	$(DOCKERCOMPOSE_RUN) $(SERVICE) bash; \
+	$(DOCKERCOMPOSE_RUN) $(SERVICE) su; \
 	$(DOCKERCOMPOSE_W_ENV) down
 
 wdeps-%: dev-image

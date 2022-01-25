@@ -5,8 +5,6 @@ FROM docker.io/library/erlang:${ERLANG_VERSION}
 ARG THRIFT_VERSION
 ARG BUILDARCH
 
-RUN echo "Architecture: $BUILDARCH"
-
 RUN wget -q -O- "https://github.com/valitydev/thrift/releases/download/${THRIFT_VERSION}/thrift-${THRIFT_VERSION}-linux-${BUILDARCH}.tar.gz" \
     | tar -xvz -C /usr/local/bin/
 
