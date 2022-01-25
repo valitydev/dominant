@@ -11,7 +11,6 @@ services:
         THRIFT_VERSION: $THRIFT_VERSION
     volumes:
       - .:$PWD
-      - $HOME/.cache:/home/$UNAME/.cache
     working_dir: $PWD
     depends_on:
       - machinegun

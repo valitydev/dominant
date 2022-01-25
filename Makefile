@@ -19,7 +19,7 @@ DEV_IMAGE_ID = $(file < .image.dev)
 
 DOCKER ?= docker
 DOCKERCOMPOSE ?= docker compose
-DOCKERCOMPOSEWENV = DEV_IMAGE_TAG=$(DEV_IMAGE_TAG) $(DOCKERCOMPOSE)
+DOCKERCOMPOSE_W_ENV = DEV_IMAGE_TAG=$(DEV_IMAGE_TAG) $(DOCKERCOMPOSE)
 REBAR ?= rebar3
 
 all: compile
@@ -29,7 +29,7 @@ all: compile
 dev-image: .image.dev
 
 .image.dev: Dockerfile.dev .env
-	env $(DOTENV) $(DOCKERCOMPOSEWENV) build $(SERVICE)
+	env $(DOTENV) $(DOCKERCOMPOSE_W_ENV) build $(SERVICE)
 	$(DOCKER) image ls -q -f "reference=$(DEV_IMAGE_ID)" | head -n1 > $@
 
 clean-dev-image:
@@ -42,7 +42,7 @@ DOCKER_WC_OPTIONS := -v $(PWD):$(PWD) --workdir $(PWD)
 DOCKER_WC_EXTRA_OPTIONS ?= --rm
 DOCKER_RUN = $(DOCKER) run $(DOCKER_WC_OPTIONS) $(DOCKER_WC_EXTRA_OPTIONS)
 
-DOCKERCOMPOSE_RUN = $(DOCKERCOMPOSEWENV) run --use-aliases --service-ports $(DOCKER_WC_OPTIONS)
+DOCKERCOMPOSE_RUN = $(DOCKERCOMPOSE_W_ENV) run --use-aliases --service-ports $(DOCKER_WC_OPTIONS)
 
 wc-shell: dev-image
 	$(DOCKER_RUN) --interactive --tty $(DEV_IMAGE_TAG)
@@ -51,13 +51,13 @@ wc-%: dev-image
 	$(DOCKER_RUN) $(DEV_IMAGE_TAG) make $*
 
 wdeps-shell: dev-image
-	$(DOCKERCOMPOSE_RUN) $(SERVICE) su; \
-	$(DOCKERCOMPOSEWENV) down
+	$(DOCKERCOMPOSE_RUN) $(SERVICE) bash; \
+	$(DOCKERCOMPOSE_W_ENV) down
 
 wdeps-%: dev-image
 	$(DOCKERCOMPOSE_RUN) -T $(SERVICE) make $*; \
 	res=$$?; \
-	$(DOCKERCOMPOSEWENV) down; \
+	$(DOCKERCOMPOSE_W_ENV) down; \
 	exit $$res
 
 # Erlang-specific tasks
