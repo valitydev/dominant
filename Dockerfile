@@ -13,7 +13,6 @@ WORKDIR /build
 RUN rebar3 compile
 RUN rebar3 as prod release
 
-ARG ERLANG_VERSION
 FROM erlang:${ERLANG_VERSION}-slim
 ARG SERVICE
 ENV CHARSET=UTF-8
