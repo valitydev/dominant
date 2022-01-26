@@ -1,6 +1,6 @@
 ARG ERLANG_VERSION
 
-FROM ghcr.io/library/erlang:${ERLANG_VERSION} AS builder
+FROM erlang:${ERLANG_VERSION} AS builder
 
 ARG THRIFT_VERSION
 ARG BUILDARCH
