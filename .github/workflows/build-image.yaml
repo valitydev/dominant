@@ -41,3 +41,7 @@ jobs:
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          buld-args:
+            ERLANG_VERSION: ${{ env.ERLANG_VERSION }}
+            THRIFT_VERSION: ${{ env.ERLANG_VERSION }}
+            SERVICE: ${{ env.ERLANG_VERSION }}
