@@ -3,7 +3,7 @@
 # For example, to run with podman put `DOCKER=podman` there.
 -include Makefile.env
 
-SERVICE := dominant
+-include .env
 
 # NOTE
 # Variables specified in `.env` file are used to pick and setup specific
