@@ -14,7 +14,7 @@ DOTENV := $(shell grep -v '^\#' .env)
 
 # Development images
 
-DEV_IMAGE_TAG = $(SERVICE)-dev
+DEV_IMAGE_TAG = $(SERVICE_NAME)-dev
 DEV_IMAGE_ID = $(file < .image.dev)
 
 DOCKER ?= docker
@@ -29,8 +29,8 @@ all: compile
 dev-image: .image.dev
 
 .image.dev: Dockerfile.dev .env
-	env $(DOTENV) $(DOCKERCOMPOSE_W_ENV) build $(SERVICE)
-	$(DOCKER) image ls -q -f "reference=$(DEV_IMAGE_ID)" | head -n1 > $@
+	$(DOCKERCOMPOSE_W_ENV) build $(SERVICE_NAME)
+	$(DOCKER) image ls -q -f "reference=$(DEV_IMAGE_TAG)" | head -n1 > $@
 
 clean-dev-image:
 ifneq ($(DEV_IMAGE_ID),)
@@ -42,7 +42,7 @@ DOCKER_WC_OPTIONS := -v $(PWD):$(PWD) --workdir $(PWD)
 DOCKER_WC_EXTRA_OPTIONS ?= --rm
 DOCKER_RUN = $(DOCKER) run $(DOCKER_WC_OPTIONS) $(DOCKER_WC_EXTRA_OPTIONS)
 
-DOCKERCOMPOSE_RUN = $(DOCKERCOMPOSE_W_ENV) run --name $(SERVICE) --service-ports $(DOCKER_WC_OPTIONS)
+DOCKERCOMPOSE_RUN = $(DOCKERCOMPOSE_W_ENV) run --name $(SERVICE_NAME) --service-ports $(DOCKER_WC_OPTIONS)
 
 wc-shell: dev-image
 	$(DOCKER_RUN) --interactive --tty $(DEV_IMAGE_TAG)
@@ -51,11 +51,11 @@ wc-%: dev-image
 	$(DOCKER_RUN) $(DEV_IMAGE_TAG) make $*
 
 wdeps-shell: dev-image
-	$(DOCKERCOMPOSE_RUN) $(SERVICE) su; \
+	$(DOCKERCOMPOSE_RUN) $(SERVICE_NAME) su; \
 	$(DOCKERCOMPOSE_W_ENV) down
 
 wdeps-%: dev-image
-	$(DOCKERCOMPOSE_RUN) -T $(SERVICE) make $*; \
+	$(DOCKERCOMPOSE_RUN) -T $(SERVICE_NAME) make $*; \
 	res=$$?; \
 	$(DOCKERCOMPOSE_W_ENV) down; \
 	exit $$res

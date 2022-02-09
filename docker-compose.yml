@@ -1,13 +1,13 @@
 version: '3'
 services:
 
-  dominant: # Keep in sync with $(SERVICE)
+  dominant: # Keep in sync with $(SERVICE_NAME)
     image: $DEV_IMAGE_TAG
     build:
       dockerfile: Dockerfile.dev
       context: .
       args:
-        ERLANG_VERSION: $ERLANG_VERSION
+        OTP_VERSION: $OTP_VERSION
         THRIFT_VERSION: $THRIFT_VERSION
     volumes:
       - .:$PWD
