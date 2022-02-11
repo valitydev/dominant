@@ -1,6 +1,6 @@
-ARG ERLANG_VERSION
+ARG OTP_VERSION
 
-FROM docker.io/library/erlang:${ERLANG_VERSION}
+FROM docker.io/library/erlang:${OTP_VERSION}
 
 ARG THRIFT_VERSION
 ARG BUILDARCH
