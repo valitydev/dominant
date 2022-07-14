@@ -1,9 +1,9 @@
 -module(dmt_migration_v5_SUITE).
 
--include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
 
 -export([all/0]).
@@ -410,24 +410,24 @@ next_id() ->
     erlang:system_time(micro_seconds) band 16#7FFFFFFF.
 
 insert(Object) ->
-    dmt_client:commit(#'Commit'{ops = [{insert, #'InsertOp'{object = Object}}]}).
+    dmt_client:commit(#domain_conf_Commit{ops = [{insert, #domain_conf_InsertOp{object = Object}}]}).
 
 update(Object0, Object1) ->
-    dmt_client:commit(#'Commit'{
+    dmt_client:commit(#domain_conf_Commit{
         ops = [
-            {update, #'UpdateOp'{old_object = Object0, new_object = Object1}}
+            {update, #domain_conf_UpdateOp{old_object = Object0, new_object = Object1}}
         ]
     }).
 
 remove(Object) ->
-    dmt_client:commit(#'Commit'{ops = [{remove, #'RemoveOp'{object = Object}}]}).
+    dmt_client:commit(#domain_conf_Commit{ops = [{remove, #domain_conf_RemoveOp{object = Object}}]}).
 
 checkout(Ref, Version) ->
     try dmt_client:checkout_object(Version, Ref) of
         {_Tag, Object} ->
             Object
     catch
-        throw:#'ObjectNotFound'{} ->
+        throw:#domain_conf_ObjectNotFound{} ->
             not_found;
         throw:Reason ->
             erlang:error(Reason)
@@ -484,7 +484,7 @@ wait_for_migration(V, TriesLeft, SleepInterval) when TriesLeft > 0 ->
                 description = <<"MigrationCommitFixture">>
             }
         }},
-    Commit = #'Commit'{ops = [{insert, #'InsertOp'{object = Object}}]},
+    Commit = #domain_conf_Commit{ops = [{insert, #domain_conf_InsertOp{object = Object}}]},
     try
         dmt_client:commit(V, Commit)
     catch

@@ -24,7 +24,7 @@
 -define(TABLE, ?MODULE).
 -define(SERVER, ?MODULE).
 
--include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
 
 %%
 
@@ -67,7 +67,7 @@ init(_) ->
         ordered_set,
         protected,
         {read_concurrency, true},
-        {keypos, #'Snapshot'.version}
+        {keypos, #domain_conf_Snapshot.version}
     ],
     ?TABLE = ets:new(?TABLE, EtsOpts),
     {ok, #state{}}.

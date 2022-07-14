@@ -2,7 +2,8 @@
 
 -behaviour(dmt_api_repository).
 
--include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
 -include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
 
 -define(NS, <<"domain-config">>).
@@ -35,7 +36,7 @@
 -type context() :: woody_context:ctx().
 -type machine() :: mg_proto_state_processing_thrift:'Machine'().
 
--type ref() :: dmsl_domain_config_thrift:'Reference'().
+-type ref() :: dmsl_domain_conf_thrift:'Reference'().
 -type snapshot() :: dmt_api_repository:snapshot().
 -type commit() :: dmt_api_repository:commit().
 
@@ -163,9 +164,13 @@ try_migrate_history(Version, History, Context) ->
     %% TODO abstraction leak
     NextVersion = Version + 1,
     case maps:get(NextVersion, History, undefined) of
-        #'Commit'{} = Commit ->
+        #domain_conf_Commit{} = Commit ->
             MigratedCommit = migrate_commit(Commit),
-            {ok, #'Snapshot'{version = NextVersion}} = dmt_api_repository_v5:commit(Version, MigratedCommit, Context),
+            {ok, #domain_conf_Snapshot{version = NextVersion}} = dmt_api_repository_v5:commit(
+                Version,
+                MigratedCommit,
+                Context
+            ),
             %% continue history traversing
             try_migrate_history(NextVersion, History, Context);
         undefined ->
@@ -205,20 +210,20 @@ decode_aux_state(
 ) ->
     #{version => Version, is_finished => IsFinished}.
 
-migrate_commit(#'Commit'{ops = Ops} = Commit) ->
+migrate_commit(#domain_conf_Commit{ops = Ops} = Commit) ->
     UpdatedOps = lists:map(fun rewrite_op/1, Ops),
     NewOps = lists:flatmap(fun add_ops/1, Ops),
-    Commit#'Commit'{ops = UpdatedOps ++ NewOps}.
+    Commit#domain_conf_Commit{ops = UpdatedOps ++ NewOps}.
 
-rewrite_op({insert, #'InsertOp'{object = Object} = Op}) ->
-    {insert, Op#'InsertOp'{object = rewrite_object(Object)}};
-rewrite_op({update, #'UpdateOp'{old_object = OldObject, new_object = NewObject} = Op}) ->
-    {update, Op#'UpdateOp'{
+rewrite_op({insert, #domain_conf_InsertOp{object = Object} = Op}) ->
+    {insert, Op#domain_conf_InsertOp{object = rewrite_object(Object)}};
+rewrite_op({update, #domain_conf_UpdateOp{old_object = OldObject, new_object = NewObject} = Op}) ->
+    {update, Op#domain_conf_UpdateOp{
         old_object = rewrite_object(OldObject),
         new_object = rewrite_object(NewObject)
     }};
-rewrite_op({remove, #'RemoveOp'{object = Object} = Op}) ->
-    {remove, Op#'RemoveOp'{object = rewrite_object(Object)}}.
+rewrite_op({remove, #domain_conf_RemoveOp{object = Object} = Op}) ->
+    {remove, Op#domain_conf_RemoveOp{object = rewrite_object(Object)}}.
 
 rewrite_object({provider, #domain_ProviderObject{data = Data} = Object}) ->
     NewData = Data#domain_Provider{
@@ -255,25 +260,25 @@ rewrite_provider_decision_name(domain_P2PProviderDecision) ->
 rewrite_provider_decision_name(Name) ->
     Name.
 
-add_ops({insert, #'InsertOp'{object = Object0} = Op}) ->
+add_ops({insert, #domain_conf_InsertOp{object = Object0} = Op}) ->
     case maybe_clone_object(Object0) of
         {add, Object1} ->
-            [{insert, Op#'InsertOp'{object = Object1}}];
+            [{insert, Op#domain_conf_InsertOp{object = Object1}}];
         ignore ->
             []
     end;
-add_ops({update, #'UpdateOp'{old_object = OldObject0, new_object = NewObject0} = Op}) ->
+add_ops({update, #domain_conf_UpdateOp{old_object = OldObject0, new_object = NewObject0} = Op}) ->
     case maybe_clone_object(OldObject0) of
         {add, OldObject1} ->
             {add, NewObject1} = maybe_clone_object(NewObject0),
-            [{update, Op#'UpdateOp'{old_object = OldObject1, new_object = NewObject1}}];
+            [{update, Op#domain_conf_UpdateOp{old_object = OldObject1, new_object = NewObject1}}];
         ignore ->
             []
     end;
-add_ops({remove, #'RemoveOp'{object = Object0} = Op}) ->
+add_ops({remove, #domain_conf_RemoveOp{object = Object0} = Op}) ->
     case maybe_clone_object(Object0) of
         {add, Object1} ->
-            [{remove, Op#'RemoveOp'{object = Object1}}];
+            [{remove, Op#domain_conf_RemoveOp{object = Object1}}];
         ignore ->
             []
     end.

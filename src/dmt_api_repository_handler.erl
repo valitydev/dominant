@@ -2,7 +2,7 @@
 
 -behaviour(woody_server_thrift_handler).
 
--include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
 
 -export([handle_function/4]).
 
@@ -39,9 +39,9 @@ do_handle_function('Commit', {Version, Commit}, Context, Options) ->
         {error, {operation_error, Error}} ->
             woody_error:raise(business, handle_operation_error(Error));
         {error, version_not_found} ->
-            woody_error:raise(business, #'VersionNotFound'{});
+            woody_error:raise(business, #domain_conf_VersionNotFound{});
         {error, head_mismatch} ->
-            woody_error:raise(business, #'ObsoleteCommitVersion'{});
+            woody_error:raise(business, #domain_conf_ObsoleteCommitVersion{});
         {error, migration_in_progress} ->
             woody_error:raise(system, {internal, resource_unavailable, <<"Migration in progress. Please, stand by.">>})
     end;
@@ -50,14 +50,14 @@ do_handle_function('Checkout', {Reference}, Context, Options) ->
         {ok, Snapshot} ->
             {ok, Snapshot};
         {error, version_not_found} ->
-            woody_error:raise(business, #'VersionNotFound'{})
+            woody_error:raise(business, #domain_conf_VersionNotFound{})
     end;
 do_handle_function('PullRange', {After, Limit}, Context, Options) ->
     case dmt_api_repository:pull(After, Limit, repository(Options), Context) of
         {ok, History} ->
             {ok, History};
         {error, version_not_found} ->
-            woody_error:raise(business, #'VersionNotFound'{})
+            woody_error:raise(business, #domain_conf_VersionNotFound{})
     end;
 %% depreceted, will be removed soon
 do_handle_function('Pull', {Version}, Context, Options) ->
@@ -65,34 +65,34 @@ do_handle_function('Pull', {Version}, Context, Options) ->
         {ok, History} ->
             {ok, History};
         {error, version_not_found} ->
-            woody_error:raise(business, #'VersionNotFound'{})
+            woody_error:raise(business, #domain_conf_VersionNotFound{})
     end.
 
 %%
 handle_operation_error({conflict, Conflict}) ->
-    #'OperationConflict'{
+    #domain_conf_OperationConflict{
         conflict = handle_operation_conflict(Conflict)
     };
 handle_operation_error({invalid, Invalid}) ->
-    #'OperationInvalid'{
+    #domain_conf_OperationInvalid{
         errors = handle_operation_invalid(Invalid)
     }.
 
 handle_operation_conflict(Conflict) ->
     case Conflict of
         {object_already_exists, Ref} ->
-            {object_already_exists, #'ObjectAlreadyExistsConflict'{object_ref = Ref}};
+            {object_already_exists, #domain_conf_ObjectAlreadyExistsConflict{object_ref = Ref}};
         {object_not_found, Ref} ->
-            {object_not_found, #'ObjectNotFoundConflict'{object_ref = Ref}};
+            {object_not_found, #domain_conf_ObjectNotFoundConflict{object_ref = Ref}};
         {object_reference_mismatch, Ref} ->
-            {object_reference_mismatch, #'ObjectReferenceMismatchConflict'{object_ref = Ref}}
+            {object_reference_mismatch, #domain_conf_ObjectReferenceMismatchConflict{object_ref = Ref}}
     end.
 
 handle_operation_invalid(Invalid) ->
     case Invalid of
         {objects_not_exist, Refs} ->
             [
-                {object_not_exists, #'NonexistantObject'{
+                {object_not_exists, #domain_conf_NonexistantObject{
                     object_ref = Ref,
                     referenced_by = ReferencedBy
                 }}
@@ -100,7 +100,7 @@ handle_operation_invalid(Invalid) ->
             ];
         {object_reference_cycles, Cycles} ->
             [
-                {object_reference_cycle, #'ObjectReferenceCycle'{cycle = Cycle}}
+                {object_reference_cycle, #domain_conf_ObjectReferenceCycle{cycle = Cycle}}
              || Cycle <- Cycles
             ]
     end.
