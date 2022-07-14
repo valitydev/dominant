@@ -35,14 +35,8 @@ decode(Proto, Type, Data) ->
 
 %%
 
-new_protocol(binary) ->
-    {ok, Trans} = thrift_membuffer_transport:new(),
-    thrift_binary_protocol:new(Trans, [{strict_read, true}, {strict_write, true}]);
 new_protocol(msgpack) ->
     dmt_api_thrift_msgpack_protocol:new().
 
-new_protocol(binary, Data) ->
-    {ok, Trans} = thrift_membuffer_transport:new(Data),
-    thrift_binary_protocol:new(Trans);
 new_protocol(msgpack, Data) ->
     dmt_api_thrift_msgpack_protocol:new(Data).
