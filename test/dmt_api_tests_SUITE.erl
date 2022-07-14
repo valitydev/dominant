@@ -16,7 +16,6 @@
 -export([insert/1]).
 -export([update/1]).
 -export([delete/1]).
--export([migration_success/1]).
 -export([conflict/1]).
 -export([nonexistent/1]).
 -export([reference_cycles/1]).
@@ -38,20 +37,12 @@
 -spec all() -> [{group, group_name()}].
 all() ->
     [
-        {group, basic_lifecycle_v4},
-        {group, migration_to_v5},
         {group, basic_lifecycle_v5}
     ].
 
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
-        {basic_lifecycle_v4, [sequence], [
-            pull_commit,
-            {group, basic_lifecycle},
-            {group, error_mapping},
-            retry_commit
-        ]},
         {basic_lifecycle_v5, [sequence], [
             pull_commit,
             {group, basic_lifecycle},
@@ -62,9 +53,6 @@ groups() ->
             insert,
             update,
             delete
-        ]},
-        {migration_to_v5, [sequence], [
-            migration_success
         ]},
         {error_mapping, [parallel], [
             conflict,
@@ -249,27 +237,6 @@ retry_commit(_C) ->
     Version3 = Version2 + 1,
     Version2 = dmt_client:commit(Version1, Commit1),
     #domain_conf_Snapshot{version = Version3} = dmt_client:checkout(latest).
-
--spec migration_success(term()) -> term().
-migration_success(_C) ->
-    #domain_conf_Snapshot{version = VersionV3} = dmt_client:checkout(latest),
-    true = VersionV3 > 0,
-    VersionV4 = wait_for_migration(VersionV3, 20, 1000),
-    VersionV4 = VersionV3 + 1.
-
-wait_for_migration(V, TriesLeft, SleepInterval) when TriesLeft > 0 ->
-    ID = next_id(),
-    Object = fixture_domain_object(ID, <<"MigrationCommitFixture">>),
-    Commit = #domain_conf_Commit{ops = [{insert, #domain_conf_InsertOp{object = Object}}]},
-    try
-        dmt_client:commit(V, Commit)
-    catch
-        _Class:_Reason ->
-            timer:sleep(SleepInterval),
-            wait_for_migration(V, TriesLeft - 1, SleepInterval)
-    end;
-wait_for_migration(_, _, _) ->
-    error(wait_for_migration_failed).
 
 -spec conflict(term()) -> term().
 conflict(_C) ->
