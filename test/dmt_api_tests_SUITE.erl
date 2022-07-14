@@ -16,6 +16,8 @@
 -export([insert/1]).
 -export([update/1]).
 -export([delete/1]).
+-export([missing_version/1]).
+-export([obsolete/1]).
 -export([conflict/1]).
 -export([nonexistent/1]).
 -export([reference_cycles/1]).
@@ -57,7 +59,9 @@ groups() ->
             update,
             delete
         ]},
-        {error_mapping, [parallel], [
+        {error_mapping, [sequence], [
+            missing_version,
+            obsolete,
             conflict,
             nonexistent,
             reference_cycles
@@ -128,7 +132,7 @@ end_per_group(_, _C) ->
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(_, C) ->
     %% added because dmt_client:checkout(latest)
-    %% could return old version from cache overwise
+    %% could return old version from cache otherwise
     {ok, _Version} = dmt_client_cache:update(),
     C.
 
@@ -226,6 +230,46 @@ retry_commit(_C) ->
     Version3 = Version2 + 1,
     Version2 = dmt_client:commit(Version1, Commit1),
     #domain_conf_Snapshot{version = Version3} = dmt_client:checkout(latest).
+
+-spec missing_version(term()) -> term().
+missing_version(_C) ->
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
+    _ = ?assertThrow(
+        #domain_conf_VersionNotFound{},
+        dmt_client:commit(
+            Version1 + 42,
+            #domain_conf_Commit{
+                ops = [
+                    {insert, #domain_conf_InsertOp{
+                        object = fixture_domain_object(next_id(), <<"MissingVersionFixture">>)
+                    }}
+                ]
+            }
+        )
+    ).
+
+-spec obsolete(term()) -> term().
+obsolete(_C) ->
+    Commit1 = #domain_conf_Commit{
+        ops = [
+            {insert, #domain_conf_InsertOp{
+                object = fixture_domain_object(next_id(), <<"InitialFixture">>)
+            }}
+        ]
+    },
+    Commit2 = #domain_conf_Commit{
+        ops = [
+            {insert, #domain_conf_InsertOp{
+                object = fixture_domain_object(next_id(), <<"ObsoleteFixture">>)
+            }}
+        ]
+    },
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
+    _Version2 = dmt_client:commit(Version1, Commit1),
+    _ = ?assertThrow(
+        #domain_conf_ObsoleteCommitVersion{},
+        dmt_client:commit(Version1, Commit2)
+    ).
 
 -spec conflict(term()) -> term().
 conflict(_C) ->

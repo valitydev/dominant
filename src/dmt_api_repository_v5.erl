@@ -154,7 +154,7 @@ handle_call({commit, Version, Commit}, St, _Context) ->
             % Is this retry? Maybe we already applied this commit.
             check_commit(Version, Commit, St);
         {ok, _} ->
-            {{error, head_mismatch}, []}
+            {{error, version_not_found}, []}
     end.
 
 apply_commit(
