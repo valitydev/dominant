@@ -2,9 +2,7 @@
 
 -include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
 
--export([call/4]).
 -export([call/5]).
--export([get_machine/3]).
 -export([get_history/4]).
 -export([start/3]).
 
@@ -17,16 +15,9 @@
 -type descriptor() :: mg_proto_state_processing_thrift:'MachineDescriptor'().
 -type history_range() :: mg_proto_state_processing_thrift:'HistoryRange'().
 -type history() :: mg_proto_state_processing_thrift:'History'().
--type machine() :: mg_proto_state_processing_thrift:'Machine'().
 -type context() :: woody_context:ctx().
 
 %%
-
--spec call(ns(), id(), args(), context()) ->
-    response()
-    | no_return().
-call(NS, ID, Args, Context) ->
-    call(NS, ID, #'mg_stateproc_HistoryRange'{}, Args, Context).
 
 -spec call(ns(), id(), history_range(), args(), context()) ->
     response()
@@ -38,20 +29,7 @@ call(NS, ID, HistoryRange, Args, Context) ->
             Result;
         {error, #'mg_stateproc_MachineNotFound'{}} ->
             ok = start(NS, ID, Context),
-            call(NS, ID, Args, Context)
-    end.
-
--spec get_machine(ns(), id(), context()) ->
-    {ok, machine()}
-    | {error, mg_proto_state_processing_thrift:'MachineNotFound'()}
-    | no_return().
-get_machine(NS, ID, Context) ->
-    Descriptor = construct_descriptor(NS, ID, #'mg_stateproc_HistoryRange'{}),
-    case issue_rpc('GetMachine', {Descriptor}, Context) of
-        {ok, #'mg_stateproc_Machine'{} = Machine} ->
-            {ok, Machine};
-        {error, _} = Error ->
-            Error
+            call(NS, ID, HistoryRange, Args, Context)
     end.
 
 -spec get_history(ns(), id(), history_range(), context()) ->
