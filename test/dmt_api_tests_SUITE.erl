@@ -20,6 +20,8 @@
 -export([nonexistent/1]).
 -export([reference_cycles/1]).
 
+-export([checkout_object/1]).
+
 -include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
 -include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
@@ -37,7 +39,8 @@
 -spec all() -> [{group, group_name()}].
 all() ->
     [
-        {group, basic_lifecycle_v5}
+        {group, basic_lifecycle_v5},
+        {group, repository_client}
     ].
 
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
@@ -58,6 +61,9 @@ groups() ->
             conflict,
             nonexistent,
             reference_cycles
+        ]},
+        {repository_client, [parallel], [
+            checkout_object
         ]}
     ].
 
@@ -75,26 +81,10 @@ end_per_suite(C) ->
     genlib_app:stop_unload_applications(?config(suite_apps, C)).
 
 -spec init_per_group(group_name(), config()) -> config().
-init_per_group(basic_lifecycle_v4, C) ->
-    [{group_apps, start_with_repository(dmt_api_repository_v4) ++ start_client()} | C];
 init_per_group(basic_lifecycle_v5, C) ->
     [{group_apps, start_with_repository(dmt_api_repository_v5) ++ start_client()} | C];
-init_per_group(migration_to_v5, C) ->
-    ApiApps = genlib_app:start_application_with(dmt_api, [
-        {repository, dmt_api_repository_migration},
-        {migration, #{
-            timeout => 360,
-            limit => 20
-        }},
-        {services, #{
-            automaton => #{
-                url => "http://machinegun:8022/v1/automaton"
-            }
-        }},
-        % 2Kb
-        {max_cache_size, 2048}
-    ]),
-    [{group_apps, ApiApps ++ start_client()} | C];
+init_per_group(repository_client, C) ->
+    [{group_apps, start_with_repository(dmt_api_repository_v5) ++ start_client()} | C];
 init_per_group(_, C) ->
     C.
 
@@ -127,10 +117,9 @@ start_client() ->
     ]).
 
 -spec end_per_group(group_name(), config()) -> term().
-end_per_group(Group, C) when
-    Group =:= basic_lifecycle_v4 orelse
-        Group =:= basic_lifecycle_v5 orelse
-        Group =:= migration_to_v5
+end_per_group(GroupName, C) when
+    GroupName == basic_lifecycle_v5;
+    GroupName == repository_client
 ->
     genlib_app:stop_unload_applications(?config(group_apps, C));
 end_per_group(_, _C) ->
@@ -303,6 +292,33 @@ reference_cycles(_C) ->
         )
     ).
 
+-spec checkout_object(term()) -> term().
+checkout_object(_C) ->
+    ID = next_id(),
+    Object = fixture_domain_object(ID, <<"InsertFixture">>),
+    Ref = fixture_object_ref(ID),
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
+    Version2 = dmt_client:commit(
+        Version1,
+        #domain_conf_Commit{ops = [{insert, #domain_conf_InsertOp{object = Object}}]}
+    ),
+    ?assertEqual(
+        {ok, #domain_conf_VersionedObject{version = Version2, object = Object}},
+        call_checkout_object({head, #domain_conf_Head{}}, Ref)
+    ),
+    ?assertEqual(
+        {exception, #domain_conf_ObjectNotFound{}},
+        call_checkout_object({version, Version1}, Ref)
+    ),
+    ?assertEqual(
+        {ok, #domain_conf_VersionedObject{version = Version2, object = Object}},
+        call_checkout_object({version, Version2}, Ref)
+    ),
+    ?assertEqual(
+        {exception, #domain_conf_VersionNotFound{}},
+        call_checkout_object({version, Version2 + 1}, Ref)
+    ).
+
 next_id() ->
     erlang:system_time(micro_seconds) band 16#7FFFFFFF.
 
@@ -323,3 +339,17 @@ criterion_w_refs(ID, Refs) ->
             predicate = {any_of, ordsets:from_list([{criterion, #domain_CriterionRef{id = Ref}} || Ref <- Refs])}
         }
     }}.
+
+%%
+
+call_checkout_object(Version, ObjectReference) ->
+    call('RepositoryClient', 'checkoutObject', {Version, ObjectReference}).
+
+call(ServiceName, Function, Args) ->
+    Url = <<"http://dominant:8022/v1/domain/repository_client">>,
+    Call = {{dmsl_domain_conf_thrift, ServiceName}, Function, Args},
+    CallOpts = #{
+        url => Url,
+        event_handler => [scoper_woody_event_handler]
+    },
+    woody_client:call(Call, CallOpts, woody_context:new()).
