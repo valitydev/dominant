@@ -18,7 +18,9 @@
 -export([delete/1]).
 -export([missing_version/1]).
 -export([obsolete/1]).
--export([conflict/1]).
+-export([conflict_notfound/1]).
+-export([conflict_exists/1]).
+-export([conflict_mismatch/1]).
 -export([nonexistent/1]).
 -export([reference_cycles/1]).
 
@@ -59,10 +61,12 @@ groups() ->
             update,
             delete
         ]},
-        {error_mapping, [sequence], [
+        {error_mapping, [], [
             missing_version,
             obsolete,
-            conflict,
+            conflict_notfound,
+            conflict_exists,
+            conflict_mismatch,
             nonexistent,
             reference_cycles
         ]},
@@ -271,8 +275,8 @@ obsolete(_C) ->
         dmt_client:commit(Version1, Commit2)
     ).
 
--spec conflict(term()) -> term().
-conflict(_C) ->
+-spec conflict_notfound(term()) -> term().
+conflict_notfound(_C) ->
     #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
     _ = ?assertThrow(
         #domain_conf_OperationConflict{
@@ -289,6 +293,54 @@ conflict(_C) ->
                 }}
             ]
         })
+    ).
+
+-spec conflict_exists(term()) -> term().
+conflict_exists(_C) ->
+    ID = next_id(),
+    Ref = fixture_object_ref(ID),
+    Commit = #domain_conf_Commit{
+        ops = [
+            {insert, #domain_conf_InsertOp{
+                object = fixture_domain_object(ID, <<"ExistingObjectFixture">>)
+            }}
+        ]
+    },
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
+    Version2 = dmt_client:commit(Version1, Commit),
+    _ = ?assertThrow(
+        #domain_conf_OperationConflict{
+            conflict = {object_already_exists, #domain_conf_ObjectAlreadyExistsConflict{object_ref = Ref}}
+        },
+        dmt_client:commit(Version2, Commit)
+    ).
+
+-spec conflict_mismatch(term()) -> term().
+conflict_mismatch(_C) ->
+    ID1 = next_id(),
+    ID2 = next_id(),
+    Object1 = fixture_domain_object(ID1, <<"Original">>),
+    Ref2 = fixture_object_ref(ID2),
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
+    Version2 = dmt_client:commit(
+        Version1,
+        #domain_conf_Commit{ops = [{insert, #domain_conf_InsertOp{object = Object1}}]}
+    ),
+    _ = ?assertThrow(
+        #domain_conf_OperationConflict{
+            conflict = {object_reference_mismatch, #domain_conf_ObjectReferenceMismatchConflict{object_ref = Ref2}}
+        },
+        dmt_client:commit(
+            Version2,
+            #domain_conf_Commit{
+                ops = [
+                    {update, #domain_conf_UpdateOp{
+                        old_object = Object1,
+                        new_object = fixture_domain_object(ID2, <<"Mismatch">>)
+                    }}
+                ]
+            }
+        )
     ).
 
 -spec nonexistent(term()) -> term().
@@ -364,7 +416,9 @@ checkout_object(_C) ->
     ).
 
 next_id() ->
-    erlang:system_time(micro_seconds) band 16#7FFFFFFF.
+    16#7FFFFFFF band
+        (erlang:system_time(millisecond) * 1000 +
+            erlang:unique_integer([positive, monotonic])).
 
 fixture_domain_object(Ref, Data) ->
     {category, #domain_CategoryObject{
