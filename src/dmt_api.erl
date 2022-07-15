@@ -62,12 +62,12 @@ get_repository_handlers() ->
     {Path :: iodata(), {woody:service(), woody:handler(woody:options())}}.
 get_handler_spec(repository, Options) ->
     {"/v1/domain/repository", {
-        {dmsl_domain_config_thrift, 'Repository'},
+        {dmsl_domain_conf_thrift, 'Repository'},
         {dmt_api_repository_handler, Options}
     }};
 get_handler_spec(repository_client, Options) ->
     {"/v1/domain/repository_client", {
-        {dmsl_domain_config_thrift, 'RepositoryClient'},
+        {dmsl_domain_conf_thrift, 'RepositoryClient'},
         {dmt_api_repository_client_handler, Options}
     }};
 get_handler_spec(state_processor, Options) ->

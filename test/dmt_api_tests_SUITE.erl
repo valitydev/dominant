@@ -1,6 +1,5 @@
 -module(dmt_api_tests_SUITE).
 
--include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0]).
@@ -17,12 +16,18 @@
 -export([insert/1]).
 -export([update/1]).
 -export([delete/1]).
--export([migration_success/1]).
--export([conflict/1]).
+-export([missing_version/1]).
+-export([obsolete/1]).
+-export([conflict_notfound/1]).
+-export([conflict_exists/1]).
+-export([conflict_mismatch/1]).
 -export([nonexistent/1]).
 -export([reference_cycles/1]).
 
--include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
+-export([checkout_object/1]).
+
+-include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_thrift.hrl").
 
 %% tests descriptions
 
@@ -38,20 +43,13 @@
 -spec all() -> [{group, group_name()}].
 all() ->
     [
-        {group, basic_lifecycle_v4},
-        {group, migration_to_v5},
-        {group, basic_lifecycle_v5}
+        {group, basic_lifecycle_v5},
+        {group, repository_client}
     ].
 
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
 groups() ->
     [
-        {basic_lifecycle_v4, [sequence], [
-            pull_commit,
-            {group, basic_lifecycle},
-            {group, error_mapping},
-            retry_commit
-        ]},
         {basic_lifecycle_v5, [sequence], [
             pull_commit,
             {group, basic_lifecycle},
@@ -63,13 +61,17 @@ groups() ->
             update,
             delete
         ]},
-        {migration_to_v5, [sequence], [
-            migration_success
-        ]},
-        {error_mapping, [parallel], [
-            conflict,
+        {error_mapping, [], [
+            missing_version,
+            obsolete,
+            conflict_notfound,
+            conflict_exists,
+            conflict_mismatch,
             nonexistent,
             reference_cycles
+        ]},
+        {repository_client, [parallel], [
+            checkout_object
         ]}
     ].
 
@@ -87,26 +89,10 @@ end_per_suite(C) ->
     genlib_app:stop_unload_applications(?config(suite_apps, C)).
 
 -spec init_per_group(group_name(), config()) -> config().
-init_per_group(basic_lifecycle_v4, C) ->
-    [{group_apps, start_with_repository(dmt_api_repository_v4) ++ start_client()} | C];
 init_per_group(basic_lifecycle_v5, C) ->
     [{group_apps, start_with_repository(dmt_api_repository_v5) ++ start_client()} | C];
-init_per_group(migration_to_v5, C) ->
-    ApiApps = genlib_app:start_application_with(dmt_api, [
-        {repository, dmt_api_repository_migration},
-        {migration, #{
-            timeout => 360,
-            limit => 20
-        }},
-        {services, #{
-            automaton => #{
-                url => "http://machinegun:8022/v1/automaton"
-            }
-        }},
-        % 2Kb
-        {max_cache_size, 2048}
-    ]),
-    [{group_apps, ApiApps ++ start_client()} | C];
+init_per_group(repository_client, C) ->
+    [{group_apps, start_with_repository(dmt_api_repository_v5) ++ start_client()} | C];
 init_per_group(_, C) ->
     C.
 
@@ -118,8 +104,8 @@ start_with_repository(Repository) ->
                 url => "http://machinegun:8022/v1/automaton"
             }
         }},
-        % 50Mb
-        {max_cache_size, 52428800}
+        % 100Kb
+        {max_cache_size, 102400}
     ]).
 
 start_client() ->
@@ -139,10 +125,9 @@ start_client() ->
     ]).
 
 -spec end_per_group(group_name(), config()) -> term().
-end_per_group(Group, C) when
-    Group =:= basic_lifecycle_v4 orelse
-        Group =:= basic_lifecycle_v5 orelse
-        Group =:= migration_to_v5
+end_per_group(GroupName, C) when
+    GroupName == basic_lifecycle_v5;
+    GroupName == repository_client
 ->
     genlib_app:stop_unload_applications(?config(group_apps, C));
 end_per_group(_, _C) ->
@@ -151,7 +136,7 @@ end_per_group(_, _C) ->
 -spec init_per_testcase(test_case_name(), config()) -> config().
 init_per_testcase(_, C) ->
     %% added because dmt_client:checkout(latest)
-    %% could return old version from cache overwise
+    %% could return old version from cache otherwise
     {ok, _Version} = dmt_client_cache:update(),
     C.
 
@@ -167,12 +152,15 @@ insert(_C) ->
     ID = next_id(),
     Object = fixture_domain_object(ID, <<"InsertFixture">>),
     Ref = fixture_object_ref(ID),
-    #'ObjectNotFound'{} = (catch dmt_client:checkout_object(Ref)),
-    #'Snapshot'{version = Version1} = dmt_client:checkout(latest),
-    Version2 = dmt_client:commit(Version1, #'Commit'{ops = [{insert, #'InsertOp'{object = Object}}]}),
+    #domain_conf_ObjectNotFound{} = (catch dmt_client:checkout_object(Ref)),
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
+    Version2 = dmt_client:commit(
+        Version1,
+        #domain_conf_Commit{ops = [{insert, #domain_conf_InsertOp{object = Object}}]}
+    ),
     _ = dmt_client_cache:update(),
     Object = dmt_client:checkout_object(Ref),
-    #'ObjectNotFound'{} = (catch dmt_client:checkout_object(Version1, Ref)),
+    #domain_conf_ObjectNotFound{} = (catch dmt_client:checkout_object(Version1, Ref)),
     Object = dmt_client:checkout_object(Version2, Ref).
 
 -spec update(term()) -> term().
@@ -181,11 +169,14 @@ update(_C) ->
     Object1 = fixture_domain_object(ID, <<"UpdateFixture1">>),
     Object2 = fixture_domain_object(ID, <<"UpdateFixture2">>),
     Ref = fixture_object_ref(ID),
-    #'Snapshot'{version = Version0} = dmt_client:checkout(latest),
-    Version1 = dmt_client:commit(Version0, #'Commit'{ops = [{insert, #'InsertOp'{object = Object1}}]}),
+    #domain_conf_Snapshot{version = Version0} = dmt_client:checkout(latest),
+    Version1 = dmt_client:commit(
+        Version0,
+        #domain_conf_Commit{ops = [{insert, #domain_conf_InsertOp{object = Object1}}]}
+    ),
     Version2 = dmt_client:commit(
         Version1,
-        #'Commit'{ops = [{update, #'UpdateOp'{old_object = Object1, new_object = Object2}}]}
+        #domain_conf_Commit{ops = [{update, #domain_conf_UpdateOp{old_object = Object1, new_object = Object2}}]}
     ),
     _ = dmt_client_cache:update(),
     Object1 = dmt_client:checkout_object(Version1, Ref),
@@ -196,11 +187,17 @@ delete(_C) ->
     ID = next_id(),
     Object = fixture_domain_object(ID, <<"DeleteFixture">>),
     Ref = fixture_object_ref(ID),
-    #'Snapshot'{version = Version0} = dmt_client:checkout(latest),
-    Version1 = dmt_client:commit(Version0, #'Commit'{ops = [{insert, #'InsertOp'{object = Object}}]}),
-    Version2 = dmt_client:commit(Version1, #'Commit'{ops = [{remove, #'RemoveOp'{object = Object}}]}),
+    #domain_conf_Snapshot{version = Version0} = dmt_client:checkout(latest),
+    Version1 = dmt_client:commit(
+        Version0,
+        #domain_conf_Commit{ops = [{insert, #domain_conf_InsertOp{object = Object}}]}
+    ),
+    Version2 = dmt_client:commit(
+        Version1,
+        #domain_conf_Commit{ops = [{remove, #domain_conf_RemoveOp{object = Object}}]}
+    ),
     Object = dmt_client:checkout_object(Version1, Ref),
-    #'ObjectNotFound'{} = (catch dmt_client:checkout_object(Version2, Ref)).
+    #domain_conf_ObjectNotFound{} = (catch dmt_client:checkout_object(Version2, Ref)).
 
 -spec pull_commit(term()) -> term().
 pull_commit(_C) ->
@@ -208,27 +205,27 @@ pull_commit(_C) ->
     History1 = #{} = dmt_client:pull_range(0, ?DEFAULT_LIMIT),
     Version1 = lists:max([0 | maps:keys(History1)]),
     Object = fixture_domain_object(ID, <<"PullFixture">>),
-    Commit = #'Commit'{ops = [{insert, #'InsertOp'{object = Object}}]},
+    Commit = #domain_conf_Commit{ops = [{insert, #domain_conf_InsertOp{object = Object}}]},
     Version2 = dmt_client:commit(Version1, Commit),
     #{Version2 := Commit} = dmt_client:pull_range(Version1, ?DEFAULT_LIMIT).
 
 -spec retry_commit(term()) -> term().
 retry_commit(_C) ->
-    Commit1 = #'Commit'{
+    Commit1 = #domain_conf_Commit{
         ops = [
-            {insert, #'InsertOp'{
+            {insert, #domain_conf_InsertOp{
                 object = fixture_domain_object(next_id(), <<"RetryCommitFixture">>)
             }}
         ]
     },
-    #'Snapshot'{version = Version1} = dmt_client:checkout(latest),
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
     Version2 = dmt_client:commit(Version1, Commit1),
     Version2 = Version1 + 1,
     Version2 = dmt_client:commit(Version1, Commit1),
-    #'Snapshot'{version = Version2} = dmt_client:checkout(latest),
-    Commit2 = #'Commit'{
+    #domain_conf_Snapshot{version = Version2} = dmt_client:checkout(latest),
+    Commit2 = #domain_conf_Commit{
         ops = [
-            {insert, #'InsertOp'{
+            {insert, #domain_conf_InsertOp{
                 object = fixture_domain_object(next_id(), <<"RetryCommitFixture">>)
             }}
         ]
@@ -236,42 +233,61 @@ retry_commit(_C) ->
     Version3 = dmt_client:commit(Version2, Commit2),
     Version3 = Version2 + 1,
     Version2 = dmt_client:commit(Version1, Commit1),
-    #'Snapshot'{version = Version3} = dmt_client:checkout(latest).
+    #domain_conf_Snapshot{version = Version3} = dmt_client:checkout(latest).
 
--spec migration_success(term()) -> term().
-migration_success(_C) ->
-    #'Snapshot'{version = VersionV3} = dmt_client:checkout(latest),
-    true = VersionV3 > 0,
-    VersionV4 = wait_for_migration(VersionV3, 20, 1000),
-    VersionV4 = VersionV3 + 1.
-
-wait_for_migration(V, TriesLeft, SleepInterval) when TriesLeft > 0 ->
-    ID = next_id(),
-    Object = fixture_domain_object(ID, <<"MigrationCommitFixture">>),
-    Commit = #'Commit'{ops = [{insert, #'InsertOp'{object = Object}}]},
-    try
-        dmt_client:commit(V, Commit)
-    catch
-        _Class:_Reason ->
-            timer:sleep(SleepInterval),
-            wait_for_migration(V, TriesLeft - 1, SleepInterval)
-    end;
-wait_for_migration(_, _, _) ->
-    error(wait_for_migration_failed).
-
--spec conflict(term()) -> term().
-conflict(_C) ->
-    #'Snapshot'{version = Version1} = dmt_client:checkout(latest),
+-spec missing_version(term()) -> term().
+missing_version(_C) ->
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
     _ = ?assertThrow(
-        #'OperationConflict'{
+        #domain_conf_VersionNotFound{},
+        dmt_client:commit(
+            Version1 + 42,
+            #domain_conf_Commit{
+                ops = [
+                    {insert, #domain_conf_InsertOp{
+                        object = fixture_domain_object(next_id(), <<"MissingVersionFixture">>)
+                    }}
+                ]
+            }
+        )
+    ).
+
+-spec obsolete(term()) -> term().
+obsolete(_C) ->
+    Commit1 = #domain_conf_Commit{
+        ops = [
+            {insert, #domain_conf_InsertOp{
+                object = fixture_domain_object(next_id(), <<"InitialFixture">>)
+            }}
+        ]
+    },
+    Commit2 = #domain_conf_Commit{
+        ops = [
+            {insert, #domain_conf_InsertOp{
+                object = fixture_domain_object(next_id(), <<"ObsoleteFixture">>)
+            }}
+        ]
+    },
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
+    _Version2 = dmt_client:commit(Version1, Commit1),
+    _ = ?assertThrow(
+        #domain_conf_ObsoleteCommitVersion{},
+        dmt_client:commit(Version1, Commit2)
+    ).
+
+-spec conflict_notfound(term()) -> term().
+conflict_notfound(_C) ->
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
+    _ = ?assertThrow(
+        #domain_conf_OperationConflict{
             conflict =
-                {object_not_found, #'ObjectNotFoundConflict'{
+                {object_not_found, #domain_conf_ObjectNotFoundConflict{
                     object_ref = {criterion, #domain_CriterionRef{id = 42}}
                 }}
         },
-        dmt_client:commit(Version1, #'Commit'{
+        dmt_client:commit(Version1, #domain_conf_Commit{
             ops = [
-                {update, #'UpdateOp'{
+                {update, #domain_conf_UpdateOp{
                     old_object = criterion_w_refs(42, []),
                     new_object = criterion_w_refs(42, [43, 44, 45])
                 }}
@@ -279,13 +295,61 @@ conflict(_C) ->
         })
     ).
 
+-spec conflict_exists(term()) -> term().
+conflict_exists(_C) ->
+    ID = next_id(),
+    Ref = fixture_object_ref(ID),
+    Commit = #domain_conf_Commit{
+        ops = [
+            {insert, #domain_conf_InsertOp{
+                object = fixture_domain_object(ID, <<"ExistingObjectFixture">>)
+            }}
+        ]
+    },
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
+    Version2 = dmt_client:commit(Version1, Commit),
+    _ = ?assertThrow(
+        #domain_conf_OperationConflict{
+            conflict = {object_already_exists, #domain_conf_ObjectAlreadyExistsConflict{object_ref = Ref}}
+        },
+        dmt_client:commit(Version2, Commit)
+    ).
+
+-spec conflict_mismatch(term()) -> term().
+conflict_mismatch(_C) ->
+    ID1 = next_id(),
+    ID2 = next_id(),
+    Object1 = fixture_domain_object(ID1, <<"Original">>),
+    Ref2 = fixture_object_ref(ID2),
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
+    Version2 = dmt_client:commit(
+        Version1,
+        #domain_conf_Commit{ops = [{insert, #domain_conf_InsertOp{object = Object1}}]}
+    ),
+    _ = ?assertThrow(
+        #domain_conf_OperationConflict{
+            conflict = {object_reference_mismatch, #domain_conf_ObjectReferenceMismatchConflict{object_ref = Ref2}}
+        },
+        dmt_client:commit(
+            Version2,
+            #domain_conf_Commit{
+                ops = [
+                    {update, #domain_conf_UpdateOp{
+                        old_object = Object1,
+                        new_object = fixture_domain_object(ID2, <<"Mismatch">>)
+                    }}
+                ]
+            }
+        )
+    ).
+
 -spec nonexistent(term()) -> term().
 nonexistent(_C) ->
-    #'Snapshot'{version = Version1} = dmt_client:checkout(latest),
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
     _ = ?assertThrow(
-        #'OperationInvalid'{
+        #domain_conf_OperationInvalid{
             errors = [
-                {object_not_exists, #'NonexistantObject'{
+                {object_not_exists, #domain_conf_NonexistantObject{
                     object_ref = {criterion, #domain_CriterionRef{}},
                     referenced_by = [{criterion, #domain_CriterionRef{id = 42}}]
                 }}
@@ -297,18 +361,18 @@ nonexistent(_C) ->
 
 -spec reference_cycles(term()) -> term().
 reference_cycles(_C) ->
-    #'Snapshot'{version = Version1} = dmt_client:checkout(latest),
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
     _ = ?assertThrow(
-        #'OperationInvalid'{
+        #domain_conf_OperationInvalid{
             errors = [
                 %% we expect 3 cycles to be found
-                {object_reference_cycle, #'ObjectReferenceCycle'{
+                {object_reference_cycle, #domain_conf_ObjectReferenceCycle{
                     cycle = [{criterion, #domain_CriterionRef{}} | _]
                 }},
-                {object_reference_cycle, #'ObjectReferenceCycle'{
+                {object_reference_cycle, #domain_conf_ObjectReferenceCycle{
                     cycle = [{criterion, #domain_CriterionRef{}} | _]
                 }},
-                {object_reference_cycle, #'ObjectReferenceCycle'{
+                {object_reference_cycle, #domain_conf_ObjectReferenceCycle{
                     cycle = [{criterion, #domain_CriterionRef{}} | _]
                 }}
             ]
@@ -324,8 +388,37 @@ reference_cycles(_C) ->
         )
     ).
 
+-spec checkout_object(term()) -> term().
+checkout_object(_C) ->
+    ID = next_id(),
+    Object = fixture_domain_object(ID, <<"InsertFixture">>),
+    Ref = fixture_object_ref(ID),
+    #domain_conf_Snapshot{version = Version1} = dmt_client:checkout(latest),
+    Version2 = dmt_client:commit(
+        Version1,
+        #domain_conf_Commit{ops = [{insert, #domain_conf_InsertOp{object = Object}}]}
+    ),
+    ?assertEqual(
+        {ok, #domain_conf_VersionedObject{version = Version2, object = Object}},
+        call_checkout_object({head, #domain_conf_Head{}}, Ref)
+    ),
+    ?assertEqual(
+        {exception, #domain_conf_ObjectNotFound{}},
+        call_checkout_object({version, Version1}, Ref)
+    ),
+    ?assertEqual(
+        {ok, #domain_conf_VersionedObject{version = Version2, object = Object}},
+        call_checkout_object({version, Version2}, Ref)
+    ),
+    ?assertEqual(
+        {exception, #domain_conf_VersionNotFound{}},
+        call_checkout_object({version, Version2 + 1}, Ref)
+    ).
+
 next_id() ->
-    erlang:system_time(micro_seconds) band 16#7FFFFFFF.
+    16#7FFFFFFF band
+        (erlang:system_time(millisecond) * 1000 +
+            erlang:unique_integer([positive, monotonic])).
 
 fixture_domain_object(Ref, Data) ->
     {category, #domain_CategoryObject{
@@ -344,3 +437,17 @@ criterion_w_refs(ID, Refs) ->
             predicate = {any_of, ordsets:from_list([{criterion, #domain_CriterionRef{id = Ref}} || Ref <- Refs])}
         }
     }}.
+
+%%
+
+call_checkout_object(Version, ObjectReference) ->
+    call('RepositoryClient', 'checkoutObject', {Version, ObjectReference}).
+
+call(ServiceName, Function, Args) ->
+    Url = <<"http://dominant:8022/v1/domain/repository_client">>,
+    Call = {{dmsl_domain_conf_thrift, ServiceName}, Function, Args},
+    CallOpts = #{
+        url => Url,
+        event_handler => [scoper_woody_event_handler]
+    },
+    woody_client:call(Call, CallOpts, woody_context:new()).

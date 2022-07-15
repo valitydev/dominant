@@ -2,7 +2,7 @@
 
 -behaviour(dmt_api_repository).
 
--include_lib("damsel/include/dmsl_domain_config_thrift.hrl").
+-include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
 -include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
 
 -define(NS, <<"domain-config">>).
@@ -25,7 +25,7 @@
 
 %%
 -record(st, {
-    snapshot = #'Snapshot'{version = 0, domain = dmt_domain:new()} :: snapshot(),
+    snapshot = #domain_conf_Snapshot{version = 0, domain = dmt_domain:new()} :: snapshot(),
     history = #{} :: dmt_api_repository:history()
 }).
 
@@ -35,14 +35,14 @@
 -type machine() :: mg_proto_state_processing_thrift:'Machine'().
 -type history() :: mg_proto_state_processing_thrift:'History'().
 
--type ref() :: dmsl_domain_config_thrift:'Reference'().
+-type ref() :: dmsl_domain_conf_thrift:'Reference'().
 -type snapshot() :: dmt_api_repository:snapshot().
 -type commit() :: dmt_api_repository:commit().
 
 -spec checkout(ref(), context()) ->
     {ok, snapshot()}
     | {error, version_not_found}.
-checkout({head, #'Head'{}}, Context) ->
+checkout({head, #domain_conf_Head{}}, Context) ->
     HistoryRange = #mg_stateproc_HistoryRange{
         'after' = undefined,
         'limit' = ?BASE,
@@ -64,7 +64,7 @@ checkout({version, V}, Context) ->
     case get_history_by_range(HistoryRange, Context) of
         #st{} = St ->
             case squash_state(St) of
-                {ok, #'Snapshot'{version = V}} = Result ->
+                {ok, #domain_conf_Snapshot{version = V}} = Result ->
                     Result;
                 {ok, _} ->
                     {error, version_not_found}
@@ -148,19 +148,22 @@ process_signal(_Signal, #mg_stateproc_Machine{ns = NS, id = ID}, _Context) ->
 
 handle_call({commit, Version, Commit}, St, _Context) ->
     case squash_state(St) of
-        {ok, #'Snapshot'{version = Version} = Snapshot} ->
+        {ok, #domain_conf_Snapshot{version = Version} = Snapshot} ->
             apply_commit(Snapshot, Commit);
-        {ok, #'Snapshot'{version = V}} when V > Version ->
+        {ok, #domain_conf_Snapshot{version = V}} when V > Version ->
             % Is this retry? Maybe we already applied this commit.
             check_commit(Version, Commit, St);
         {ok, _} ->
-            {{error, head_mismatch}, []}
+            {{error, version_not_found}, []}
     end.
 
-apply_commit(#'Snapshot'{version = VersionWas, domain = DomainWas}, #'Commit'{ops = Ops} = Commit) ->
+apply_commit(
+    #domain_conf_Snapshot{version = VersionWas, domain = DomainWas},
+    #domain_conf_Commit{ops = Ops} = Commit
+) ->
     case dmt_domain:apply_operations(Ops, DomainWas) of
         {ok, Domain} ->
-            Snapshot = #'Snapshot'{version = VersionWas + 1, domain = Domain},
+            Snapshot = #domain_conf_Snapshot{version = VersionWas + 1, domain = Domain},
             {{ok, Snapshot}, [make_event(Snapshot, Commit)]};
         {error, Reason} ->
             {{error, {operation_error, Reason}}, []}
@@ -214,7 +217,7 @@ squash_state(#st{snapshot = BaseSnapshot, history = History}) ->
 
 make_event(Snapshot, Commit) ->
     Meta =
-        case (Snapshot#'Snapshot'.version) rem ?BASE of
+        case (Snapshot#domain_conf_Snapshot.version) rem ?BASE of
             0 ->
                 #{snapshot => Snapshot};
             _ ->
@@ -275,9 +278,9 @@ decode(T, {bin, V}) ->
     dmt_api_thrift_utils:decode(binary, get_type_info(T), V).
 
 get_type_info(commit) ->
-    {struct, struct, {dmsl_domain_config_thrift, 'Commit'}};
+    {struct, struct, {dmsl_domain_conf_thrift, 'Commit'}};
 get_type_info(snapshot) ->
-    {struct, struct, {dmsl_domain_config_thrift, 'Snapshot'}}.
+    {struct, struct, {dmsl_domain_conf_thrift, 'Snapshot'}}.
 
 get_base_version(V) when is_integer(V) andalso V >= ?BASE ->
     (V div ?BASE) * ?BASE - 1;
