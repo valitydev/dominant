@@ -44,7 +44,7 @@ init(_) ->
     {ok, {#{strategy => one_for_one, intensity => 10, period => 60}, Children}}.
 
 get_repository_handlers() ->
-    Repository = genlib_app:env(?MODULE, repository, dmt_api_repository_v4),
+    Repository = genlib_app:env(?MODULE, repository, dmt_api_repository_v5),
     DefaultTimeout = genlib_app:env(?MODULE, default_woody_handling_timeout, timer:seconds(30)),
     [
         get_handler(repository, #{
