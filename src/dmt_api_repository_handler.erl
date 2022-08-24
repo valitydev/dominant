@@ -69,6 +69,7 @@ do_handle_function('Pull', {Version}, Context, Options) ->
     end.
 
 %%
+
 handle_operation_error({conflict, Conflict}) ->
     #domain_conf_OperationConflict{
         conflict = handle_operation_conflict(Conflict)
@@ -78,32 +79,26 @@ handle_operation_error({invalid, Invalid}) ->
         errors = handle_operation_invalid(Invalid)
     }.
 
-handle_operation_conflict(Conflict) ->
-    case Conflict of
-        {object_already_exists, Ref} ->
-            {object_already_exists, #domain_conf_ObjectAlreadyExistsConflict{object_ref = Ref}};
-        {object_not_found, Ref} ->
-            {object_not_found, #domain_conf_ObjectNotFoundConflict{object_ref = Ref}};
-        {object_reference_mismatch, Ref} ->
-            {object_reference_mismatch, #domain_conf_ObjectReferenceMismatchConflict{object_ref = Ref}}
-    end.
+handle_operation_conflict({object_already_exists, Ref}) ->
+    {object_already_exists, #domain_conf_ObjectAlreadyExistsConflict{object_ref = Ref}};
+handle_operation_conflict({object_not_found, Ref}) ->
+    {object_not_found, #domain_conf_ObjectNotFoundConflict{object_ref = Ref}};
+handle_operation_conflict({object_reference_mismatch, Ref}) ->
+    {object_reference_mismatch, #domain_conf_ObjectReferenceMismatchConflict{object_ref = Ref}}.
 
-handle_operation_invalid(Invalid) ->
-    case Invalid of
-        {objects_not_exist, Refs} ->
-            [
-                {object_not_exists, #domain_conf_NonexistantObject{
-                    object_ref = Ref,
-                    referenced_by = ReferencedBy
-                }}
-             || {Ref, ReferencedBy} <- Refs
-            ];
-        {object_reference_cycles, Cycles} ->
-            [
-                {object_reference_cycle, #domain_conf_ObjectReferenceCycle{cycle = Cycle}}
-             || Cycle <- Cycles
-            ]
-    end.
+handle_operation_invalid({objects_not_exist, Refs}) ->
+    [
+        {object_not_exists, #domain_conf_NonexistantObject{
+            object_ref = Ref,
+            referenced_by = ReferencedBy
+        }}
+     || {Ref, ReferencedBy} <- Refs
+    ];
+handle_operation_invalid({object_reference_cycles, Cycles}) ->
+    [
+        {object_reference_cycle, #domain_conf_ObjectReferenceCycle{cycle = Cycle}}
+     || Cycle <- Cycles
+    ].
 
 -spec repository(options()) -> module().
 repository(#{repository := Repository}) ->
