@@ -9,7 +9,7 @@
         woody,
         damsel,
         dmt_core,
-        mg_proto,
+        machinery,
         erl_health
     ]},
     {mod, {dmt_api, []}},

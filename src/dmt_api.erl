@@ -44,37 +44,42 @@ init(_) ->
     {ok, {#{strategy => one_for_one, intensity => 10, period => 60}, Children}}.
 
 get_repository_handlers() ->
-    Repository = genlib_app:env(?MODULE, repository, dmt_api_repository_v4),
+    Repository = genlib_app:env(?MODULE, repository, dmt_api_repository_v5),
     DefaultTimeout = genlib_app:env(?MODULE, default_woody_handling_timeout, timer:seconds(30)),
     [
-        get_handler_spec(repository, #{
+        get_handler(repository, #{
             repository => Repository,
             default_handling_timeout => DefaultTimeout
         }),
-        get_handler_spec(repository_client, #{
+        get_handler(repository_client, #{
             repository => Repository,
             default_handling_timeout => DefaultTimeout
         }),
-        get_handler_spec(state_processor, Repository)
+        get_machinery_handler(Repository)
     ].
 
--spec get_handler_spec(repository | repository_client | state_processor, woody:options()) ->
-    {Path :: iodata(), {woody:service(), woody:handler(woody:options())}}.
-get_handler_spec(repository, Options) ->
+-spec get_handler(repository | repository_client | state_processor, woody:options()) ->
+    woody:http_handler(woody:th_handler()).
+get_handler(repository, Options) ->
     {"/v1/domain/repository", {
         {dmsl_domain_conf_thrift, 'Repository'},
         {dmt_api_repository_handler, Options}
     }};
-get_handler_spec(repository_client, Options) ->
+get_handler(repository_client, Options) ->
     {"/v1/domain/repository_client", {
         {dmsl_domain_conf_thrift, 'RepositoryClient'},
         {dmt_api_repository_client_handler, Options}
-    }};
-get_handler_spec(state_processor, Options) ->
-    {"/v1/stateproc", {
-        {mg_proto_state_processing_thrift, 'Processor'},
-        {dmt_api_automaton_handler, Options}
     }}.
+
+-spec get_machinery_handler(module()) ->
+    woody:http_handler(woody:th_handler()).
+get_machinery_handler(Repository) ->
+    machinery_mg_backend:get_handler(
+        {Repository, #{
+            path => "/v1/stateproc",
+            backend_config => #{schema => Repository}
+        }}
+    ).
 
 -spec enable_health_logging(erl_health:check()) -> erl_health:check().
 enable_health_logging(Check) ->

@@ -3,9 +3,8 @@
 -behaviour(dmt_api_repository).
 
 -include_lib("damsel/include/dmsl_domain_conf_thrift.hrl").
--include_lib("mg_proto/include/mg_proto_state_processing_thrift.hrl").
 
--define(NS, <<"domain-config">>).
+-define(NS, 'domain-config').
 -define(ID, <<"primary/v5">>).
 -define(BASE, 10).
 
@@ -18,10 +17,29 @@
 
 %% State processor
 
--behaviour(dmt_api_automaton_handler).
+-type args(T) :: machinery:args(T).
+-type machine() :: machinery:machine(event(), _).
+-type handler_args() :: machinery:handler_args(_).
+-type handler_opts() :: machinery:handler_opts(_).
+-type result() :: machinery:result(event(), none()).
+-type response(T) :: machinery:response(T).
 
--export([process_call/3]).
--export([process_signal/3]).
+% TODO
+% Otherwise dialyzer spews pretty unreasonable complains. Lost any hope telling
+% him that callback typespecs are fine.
+% -behaviour(machinery).
+
+-export([init/4]).
+-export([process_call/4]).
+-export([process_timeout/3]).
+-export([process_repair/4]).
+
+%% Storage schema
+
+-behaviour(machinery_mg_schema).
+-export([marshal/3]).
+-export([unmarshal/3]).
+-export([get_version/1]).
 
 %%
 -record(st, {
@@ -30,123 +48,121 @@
 }).
 
 -type st() :: #st{}.
--type context() :: woody_context:ctx().
--type history_range() :: mg_proto_state_processing_thrift:'HistoryRange'().
--type machine() :: mg_proto_state_processing_thrift:'Machine'().
--type history() :: mg_proto_state_processing_thrift:'History'().
+-type event() :: {commit, commit(), #{snapshot => snapshot()}}.
 
 -type ref() :: dmsl_domain_conf_thrift:'Reference'().
 -type snapshot() :: dmt_api_repository:snapshot().
 -type commit() :: dmt_api_repository:commit().
+-type version() :: dmt_api_repository:version().
 
--spec checkout(ref(), context()) ->
+-spec checkout(ref(), woody_context:ctx()) ->
     {ok, snapshot()}
     | {error, version_not_found}.
-checkout({head, #domain_conf_Head{}}, Context) ->
-    HistoryRange = #mg_stateproc_HistoryRange{
-        'after' = undefined,
-        'limit' = ?BASE,
-        'direction' = backward
-    },
-    case get_history_by_range(HistoryRange, Context) of
-        #st{} = St ->
-            squash_state(St);
-        {error, version_not_found} ->
-            {error, version_not_found}
-    end;
-checkout({version, V}, Context) ->
+checkout({head, #domain_conf_Head{}}, WoodyCtx) ->
+    St = get_history_by_range({undefined, ?BASE, backward}, WoodyCtx),
+    squash_state(St);
+checkout({version, V}, WoodyCtx) ->
     BaseV = get_base_version(V),
-    HistoryRange = #mg_stateproc_HistoryRange{
-        'after' = get_event_id(BaseV),
-        'limit' = V - BaseV,
-        'direction' = forward
-    },
-    case get_history_by_range(HistoryRange, Context) of
-        #st{} = St ->
-            case squash_state(St) of
-                {ok, #domain_conf_Snapshot{version = V}} = Result ->
-                    Result;
-                {ok, _} ->
-                    {error, version_not_found}
-            end;
-        {error, version_not_found} ->
+    St = get_history_by_range({get_event_id(BaseV), V - BaseV, forward}, WoodyCtx),
+    case squash_state(St) of
+        {ok, #domain_conf_Snapshot{version = V}} = Result ->
+            Result;
+        {ok, _} ->
             {error, version_not_found}
     end.
 
--spec pull(dmt_api_repository:version(), context()) ->
+-spec pull(version(), woody_context:ctx()) ->
     {ok, dmt_api_repository:history()}
     | {error, version_not_found}.
-pull(Version, Context) ->
-    pull(Version, undefined, Context).
+pull(Version, WoodyCtx) ->
+    pull(Version, undefined, WoodyCtx).
 
--spec pull(dmt_api_repository:version(), dmt_api_repository:limit(), context()) ->
+-spec pull(version(), dmt_api_repository:limit(), woody_context:ctx()) ->
     {ok, dmt_api_repository:history()}
     | {error, version_not_found}.
-pull(Version, Limit, Context) ->
+pull(Version, Limit, WoodyCtx) ->
     After = get_event_id(Version),
-    case get_history_by_range(#mg_stateproc_HistoryRange{'after' = After, 'limit' = Limit}, Context) of
-        #st{history = History} ->
-            {ok, History};
-        {error, version_not_found} ->
-            {error, version_not_found}
-    end.
+    St = get_history_by_range({After, Limit, forward}, WoodyCtx),
+    {ok, St#st.history}.
 
--spec commit(dmt_api_repository:version(), commit(), context()) ->
+-spec commit(version(), commit(), woody_context:ctx()) ->
     {ok, snapshot()}
     | {error, version_not_found | {operation_error, dmt_domain:operation_error()}}.
-commit(Version, Commit, Context) ->
+commit(Version, Commit, WoodyCtx) ->
     BaseID = get_event_id(get_base_version(Version)),
-    decode_call_result(
-        dmt_api_automaton_client:call(
-            ?NS,
-            ?ID,
-            %% TODO in theory, it's enought ?BASE + 1 events here,
-            %% but it's complicated and needs to be covered by tests
-            #mg_stateproc_HistoryRange{'after' = BaseID},
-            encode_call({commit, Version, Commit}),
-            Context
-        )
-    ).
-
-%%
-
--spec get_history_by_range(history_range(), context()) -> st() | {error, version_not_found}.
-get_history_by_range(HistoryRange, Context) ->
-    case dmt_api_automaton_client:get_history(?NS, ?ID, HistoryRange, Context) of
-        {ok, History} ->
-            read_history(History);
-        {error, #mg_stateproc_MachineNotFound{}} ->
-            ok = dmt_api_automaton_client:start(?NS, ?ID, Context),
-            get_history_by_range(HistoryRange, Context);
-        {error, #mg_stateproc_EventNotFound{}} ->
-            {error, version_not_found}
+    %% TODO in theory, it's enought ?BASE + 1 events here,
+    %% but it's complicated and needs to be covered by tests
+    HistoryRange = {BaseID, undefined, forward},
+    Backend = get_backend(WoodyCtx),
+    case machinery:call(?NS, ?ID, HistoryRange, {commit, Version, Commit}, Backend) of
+        {ok, Response} ->
+            Response;
+        {error, notfound} ->
+            ok = machinery:start(?NS, ?ID, undefined, Backend),
+            commit(Version, Commit, WoodyCtx)
     end.
 
 %%
 
--spec process_call(dmt_api_automaton_handler:call(), machine(), context()) ->
-    {dmt_api_automaton_handler:response(), dmt_api_automaton_handler:events()} | no_return().
-process_call(Call, #mg_stateproc_Machine{ns = ?NS, id = ?ID} = Machine, Context) ->
-    Args = decode_call(Call),
-    {Result, Events} = handle_call(Args, read_history(Machine), Context),
-    {encode_call_result(Result), encode_events(Events)};
-process_call(_Call, #mg_stateproc_Machine{ns = NS, id = ID}, _Context) ->
-    Message = <<"Unknown machine '", NS/binary, "' '", ID/binary, "'">>,
-    woody_error:raise(system, {internal, resource_unavailable, Message}).
+-spec get_history_by_range(machinery:range(), woody_context:ctx()) -> st().
+get_history_by_range(HistoryRange, WoodyCtx) ->
+    Backend = get_backend(WoodyCtx),
+    case machinery:get(?NS, ?ID, HistoryRange, Backend) of
+        {ok, Machine} ->
+            read_history(Machine);
+        {error, notfound} ->
+            ok = machinery:start(?NS, ?ID, undefined, Backend),
+            get_history_by_range(HistoryRange, WoodyCtx)
+    end.
 
--spec process_signal(dmt_api_automaton_handler:signal(), machine(), context()) ->
-    {dmt_api_automaton_handler:action(), dmt_api_automaton_handler:events()} | no_return().
-process_signal({init, #mg_stateproc_InitSignal{}}, #mg_stateproc_Machine{ns = ?NS, id = ?ID}, _Context) ->
-    {#mg_stateproc_ComplexAction{}, []};
-process_signal({timeout, #mg_stateproc_TimeoutSignal{}}, #mg_stateproc_Machine{ns = ?NS, id = ?ID}, _Context) ->
-    {#mg_stateproc_ComplexAction{}, []};
-process_signal(_Signal, #mg_stateproc_Machine{ns = NS, id = ID}, _Context) ->
-    Message = <<"Unknown machine '", NS/binary, "' '", ID/binary, "'">>,
+-spec get_backend(woody_context:ctx()) -> machinery_mg_backend:backend().
+get_backend(WoodyCtx) ->
+    machinery_mg_backend:new(WoodyCtx, #{
+        client => dmt_api_woody_utils:get_woody_client(automaton),
+        schema => ?MODULE
+    }).
+
+%%
+
+-spec init(args(_), machine(), handler_args(), handler_opts()) -> result().
+init(_Args, _Machine, _HandlerArgs, _HandlerOpts) ->
+    #{}.
+
+-spec process_call(args(Call), machine(), handler_args(), handler_opts()) ->
+    {response(Response), result()}
+when
+    Call :: {commit, version(), commit()},
+    Response ::
+        {ok, snapshot()}
+        | {error, version_not_found | head_mismatch | {operation_error, _Reason}}.
+process_call(Args, #{namespace := ?NS, id := ?ID} = Machine, _HandlerArgs, _HandlerOpts) ->
+    handle_call(Args, read_history(Machine));
+process_call(_Call, Machine, _HandlerArgs, _HandlerOpts) ->
+    process_unexpected_machine(Machine).
+
+-spec process_timeout(machine(), handler_args(), handler_opts()) ->
+    result().
+process_timeout(#{namespace := ?NS, id := ?ID}, _HandlerArgs, _HandlerOpts) ->
+    #{};
+process_timeout(Machine, _HandlerArgs, _HandlerOpts) ->
+    process_unexpected_machine(Machine).
+
+-spec process_repair(args(_), machine(), handler_args(), handler_opts()) ->
+    {error, noimpl}.
+process_repair(_Args, #{namespace := ?NS, id := ?ID}, _HandlerArgs, _HandlerOpts) ->
+    {error, noimpl};
+process_repair(_Args, Machine, _HandlerArgs, _HandlerOpts) ->
+    process_unexpected_machine(Machine).
+
+-spec process_unexpected_machine(machine()) ->
+    no_return().
+process_unexpected_machine(#{namespace := NS, id := ID}) ->
+    Message = genlib:format("Unexpected machine: ns = ~s, id = ~s", [NS, ID]),
     woody_error:raise(system, {internal, resource_unavailable, Message}).
 
 %%
 
-handle_call({commit, Version, Commit}, St, _Context) ->
+handle_call({commit, Version, Commit}, St) ->
     case squash_state(St) of
         {ok, #domain_conf_Snapshot{version = Version} = Snapshot} ->
             apply_commit(Snapshot, Commit);
@@ -154,7 +170,7 @@ handle_call({commit, Version, Commit}, St, _Context) ->
             % Is this retry? Maybe we already applied this commit.
             check_commit(Version, Commit, St);
         {ok, _} ->
-            {{error, version_not_found}, []}
+            {{error, version_not_found}, #{}}
     end.
 
 apply_commit(
@@ -164,45 +180,33 @@ apply_commit(
     case dmt_domain:apply_operations(Ops, DomainWas) of
         {ok, Domain} ->
             Snapshot = #domain_conf_Snapshot{version = VersionWas + 1, domain = Domain},
-            {{ok, Snapshot}, [make_event(Snapshot, Commit)]};
+            Event = make_event(Snapshot, Commit),
+            {{ok, Snapshot}, #{events => [Event]}};
         {error, Reason} ->
-            {{error, {operation_error, Reason}}, []}
+            {{error, {operation_error, Reason}}, #{}}
     end.
 
 check_commit(Version, Commit, #st{snapshot = BaseSnapshot, history = History}) ->
     case maps:get(Version + 1, History) of
         Commit ->
             % it's ok, commit alredy applied, lets return this snapshot
-            {dmt_history:travel(Version + 1, History, BaseSnapshot), []};
+            {dmt_history:travel(Version + 1, History, BaseSnapshot), #{}};
         _ ->
-            {{error, head_mismatch}, []}
+            {{error, head_mismatch}, #{}}
     end.
 
--spec read_history(machine() | history()) -> st().
-read_history(#mg_stateproc_Machine{history = Events}) ->
-    read_history(Events);
-read_history(Events) ->
-    read_history(Events, #st{}).
+-spec read_history(machine()) -> st().
+read_history(#{history := Events}) ->
+    lists:foldl(fun apply_event/2, #st{}, Events).
 
--spec read_history([mg_proto_state_processing_thrift:'Event'()], st()) -> st().
-read_history([], St) ->
-    St;
-read_history(
-    [#mg_stateproc_Event{id = Id, data = EventData, format_version = FmtVsn} | Rest],
-    #st{history = History} = St
-) ->
-    {commit, Commit, Meta} = decode_event(FmtVsn, EventData),
+-spec apply_event(machinery:event(event()), st()) -> st().
+apply_event({ID, _CreatedAt, {commit, Commit, Meta}}, #st{history = History} = St) ->
+    StNext = St#st{history = History#{ID => Commit}},
     case Meta of
         #{snapshot := Snapshot} ->
-            read_history(
-                Rest,
-                St#st{snapshot = Snapshot, history = History#{Id => Commit}}
-            );
+            StNext#st{snapshot = Snapshot};
         #{} ->
-            read_history(
-                Rest,
-                St#st{history = History#{Id => Commit}}
-            )
+            StNext
     end.
 
 squash_state(#st{snapshot = BaseSnapshot, history = History}) ->
@@ -213,8 +217,7 @@ squash_state(#st{snapshot = BaseSnapshot, history = History}) ->
             error(Error)
     end.
 
-%%
-
+-spec make_event(snapshot(), commit()) -> event().
 make_event(Snapshot, Commit) ->
     Meta =
         case (Snapshot#domain_conf_Snapshot.version) rem ?BASE of
@@ -225,15 +228,33 @@ make_event(Snapshot, Commit) ->
         end,
     {commit, Commit, Meta}.
 
-encode_events(Events) ->
-    FmtVsn = 1,
-    encode_events(FmtVsn, Events).
+%%
 
-encode_events(FmtVsn, Events) ->
-    [encode_event(FmtVsn, E) || E <- Events].
+-spec marshal(machinery_mg_schema:t(), machinery_mg_schema:v(_), machinery_mg_schema:context()) ->
+    {machinery_msgpack:t(), machinery_mg_schema:context()}.
+marshal({event, FmtVsn}, V, C) ->
+    {encode_event_data(FmtVsn, V), C};
+marshal({args, call}, V, C) ->
+    {encode_call(V), C};
+marshal({response, call}, V, C) ->
+    {encode_call_result(V), C};
+marshal(T, V, C) ->
+    machinery_mg_schema_generic:marshal(T, V, C).
 
-encode_event(FmtVsn, Data) ->
-    #mg_stateproc_Content{format_version = FmtVsn, data = encode_event_data(FmtVsn, Data)}.
+-spec unmarshal(machinery_mg_schema:t(), machinery_msgpack:t(), machinery_mg_schema:context()) ->
+    {machinery_mg_schema:v(_), machinery_mg_schema:context()}.
+unmarshal({event, FmtVsn}, V, C) ->
+    {decode_event_data(FmtVsn, V), C};
+unmarshal({args, call}, V, C) ->
+    {decode_call(V), C};
+unmarshal({response, call}, V, C) ->
+    {decode_call_result(V), C};
+unmarshal(T, V, C) ->
+    machinery_mg_schema_generic:unmarshal(T, V, C).
+
+-spec get_version(machinery_mg_schema:vt()) -> machinery_mg_schema:version().
+get_version(_) ->
+    1.
 
 encode_event_data(1 = FmtVsn, {commit, Commit, Meta}) ->
     {arr, [{str, <<"commit">>}, encode(commit, Commit), encode_commit_meta(FmtVsn, Meta)]}.
@@ -243,7 +264,7 @@ encode_commit_meta(1, #{snapshot := Snapshot}) ->
 encode_commit_meta(1, #{}) ->
     {obj, #{}}.
 
-decode_event(1 = FmtVsn, {arr, [{str, <<"commit">>}, Commit, Meta]}) ->
+decode_event_data(1 = FmtVsn, {arr, [{str, <<"commit">>}, Commit, Meta]}) ->
     {commit, decode(commit, Commit), decode_commit_meta(FmtVsn, Meta)}.
 
 decode_commit_meta(1, {obj, #{{str, <<"snapshot">>} := Snapshot}}) ->
