@@ -54,8 +54,8 @@ get_repository_handlers() ->
         get_handler(repository_client, #{
             repository => Repository,
             default_handling_timeout => DefaultTimeout
-        }),
-        get_machinery_handler(Repository)
+        })
+        | get_machinery_handlers(Repository)
     ].
 
 -spec get_handler(repository | repository_client | state_processor, woody:options()) ->
@@ -71,15 +71,23 @@ get_handler(repository_client, Options) ->
         {dmt_api_repository_client_handler, Options}
     }}.
 
--spec get_machinery_handler(module()) ->
-    woody:http_handler(woody:th_handler()).
-get_machinery_handler(Repository) ->
-    machinery_mg_backend:get_handler(
-        {Repository, #{
-            path => "/v1/stateproc",
-            backend_config => #{schema => Repository}
-        }}
-    ).
+-spec get_machinery_handlers(module()) ->
+    [woody:http_handler(woody:th_handler())].
+get_machinery_handlers(Repository) ->
+    [
+        machinery_mg_backend:get_handler(
+            {Repository, #{
+                path => "/v1/stateproc",
+                backend_config => #{schema => Repository}
+            }}
+        ),
+        machinery_modernizer_mg_backend:get_handler(
+            #{
+                path => <<"/v1/modernizer">>,
+                backend_config => #{schema => Repository}
+            }
+        )
+    ].
 
 -spec enable_health_logging(erl_health:check()) -> erl_health:check().
 enable_health_logging(Check) ->
