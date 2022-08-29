@@ -269,15 +269,12 @@ unmarshal(T, V, C) ->
 
 %%
 
-%% NOTE
-%% Current format version.
-%% Do not use directly, only through `get_version/1` since this function is being mocked in the
-%% testsuite.
--define(VSN, 2).
-
 -spec get_version(machinery_mg_schema:vt()) -> machinery_mg_schema:version().
 get_version(_) ->
-    ?VSN.
+    % NOTE
+    % Current format version.
+    % Be aware, this function is being mocked in the testsuite.
+    2.
 
 encode_event_data(FmtVsn, {commit, CommitIn, Meta}) ->
     % NOTE
