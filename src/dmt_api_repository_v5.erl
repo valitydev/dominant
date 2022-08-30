@@ -41,6 +41,10 @@
 -export([unmarshal/3]).
 -export([get_version/1]).
 
+%% NOTE
+%% Used in migration tests.
+-export([modernize/1]).
+
 %%
 -record(st, {
     snapshot = #domain_conf_Snapshot{version = 0, domain = dmt_domain:new()} :: snapshot(),
@@ -117,10 +121,17 @@ get_history_by_range(HistoryRange, WoodyCtx) ->
 
 -spec get_backend(woody_context:ctx()) -> machinery_mg_backend:backend().
 get_backend(WoodyCtx) ->
-    machinery_mg_backend:new(WoodyCtx, #{
+    machinery_mg_backend:new(WoodyCtx, get_backend_config()).
+
+-spec get_modernizer_backend(woody_context:ctx()) -> machinery_modernizer_mg_backend:backend().
+get_modernizer_backend(WoodyCtx) ->
+    machinery_modernizer_mg_backend:new(WoodyCtx, get_backend_config()).
+
+get_backend_config() ->
+    #{
         client => dmt_api_woody_utils:get_woody_client(automaton),
         schema => ?MODULE
-    }).
+    }.
 
 %%
 
@@ -230,6 +241,10 @@ make_event(Snapshot, Commit) ->
 
 %%
 
+-spec modernize(woody_context:ctx()) -> ok.
+modernize(WoodyCtx) ->
+    machinery_modernizer:modernize(?NS, ?ID, get_modernizer_backend(WoodyCtx)).
+
 -spec marshal(machinery_mg_schema:t(), machinery_mg_schema:v(_), machinery_mg_schema:context()) ->
     {machinery_msgpack:t(), machinery_mg_schema:context()}.
 marshal({event, FmtVsn}, V, C) ->
@@ -252,25 +267,52 @@ unmarshal({response, call}, V, C) ->
 unmarshal(T, V, C) ->
     machinery_mg_schema_generic:unmarshal(T, V, C).
 
+%%
+
 -spec get_version(machinery_mg_schema:vt()) -> machinery_mg_schema:version().
 get_version(_) ->
-    1.
+    % NOTE
+    % Current format version.
+    % Be aware, this function is being mocked in the testsuite.
+    2.
 
-encode_event_data(1 = FmtVsn, {commit, Commit, Meta}) ->
+encode_event_data(FmtVsn, {commit, CommitIn, Meta}) ->
+    % NOTE
+    % Ensure that outdated commit won't sneak in.
+    Commit = migrate(1, get_version(event), commit, CommitIn),
     {arr, [{str, <<"commit">>}, encode(commit, Commit), encode_commit_meta(FmtVsn, Meta)]}.
 
-encode_commit_meta(1, #{snapshot := Snapshot}) ->
+encode_commit_meta(_FmtVsn, #{snapshot := SnapshotIn}) ->
+    % NOTE
+    % Ensure that outdated snapshot won't sneak in.
+    Snapshot = migrate(1, get_version(event), snapshot, SnapshotIn),
     {obj, #{{str, <<"snapshot">>} => encode(snapshot, Snapshot)}};
-encode_commit_meta(1, #{}) ->
+encode_commit_meta(_FmtVsn, #{}) ->
     {obj, #{}}.
 
-decode_event_data(1 = FmtVsn, {arr, [{str, <<"commit">>}, Commit, Meta]}) ->
-    {commit, decode(commit, Commit), decode_commit_meta(FmtVsn, Meta)}.
+decode_event_data(FmtVsn, {arr, [{str, <<"commit">>}, CommitEnc, Meta]}) when
+    is_integer(FmtVsn), FmtVsn > 0
+->
+    Commit = migrate(FmtVsn, get_version(event), commit, decode(commit, CommitEnc)),
+    {commit, Commit, decode_commit_meta(FmtVsn, Meta)}.
 
-decode_commit_meta(1, {obj, #{{str, <<"snapshot">>} := Snapshot}}) ->
-    #{snapshot => decode(snapshot, Snapshot)};
-decode_commit_meta(1, {obj, #{}}) ->
+decode_commit_meta(FmtVsn, {obj, #{{str, <<"snapshot">>} := SnapshotEnc}}) ->
+    Snapshot = migrate(FmtVsn, get_version(event), snapshot, decode(snapshot, SnapshotEnc)),
+    #{snapshot => Snapshot};
+decode_commit_meta(_FmtVsn, {obj, #{}}) ->
     #{}.
+
+migrate(TargetVsn, TargetVsn, _Type, Data) ->
+    % Nothing to migrate.
+    Data;
+migrate(Vsn, TargetVsn, Type, Data) when Vsn < TargetVsn ->
+    Migrated = dmt_api_repository_migration:migrate(Vsn, Data),
+    ok = validate(Type, Migrated),
+    migrate(Vsn + 1, TargetVsn, Type, Migrated).
+
+validate(T, V) ->
+    _ = encode(T, V),
+    ok.
 
 %%
 
