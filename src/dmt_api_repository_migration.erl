@@ -31,7 +31,7 @@ migrate_legacy_payment_system_conditions(Data) ->
             ({AllAnyOf, PredicateSet}, _Annos) when AllAnyOf == all_of; AllAnyOf == any_of ->
                 % NOTE
                 % Reconstruct potentially broken set (e.g. with duplicate elements).
-                {replace, ordsets:from_list(migrate_legacy_payment_system_conditions(PredicateSet))};
+                {replace, {AllAnyOf, ordsets:from_list(migrate_legacy_payment_system_conditions(PredicateSet))}};
             (Condition = #domain_BankCardCondition{}, _Annos) ->
                 {replace, migrate_legacy_payment_system_condition(Condition)};
             (_, _Annos) ->
