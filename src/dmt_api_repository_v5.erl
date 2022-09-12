@@ -276,16 +276,19 @@ get_version(_) ->
     % Be aware, this function is being mocked in the testsuite.
     2.
 
+get_earliest_supported_version(_) ->
+    2.
+
 encode_event_data(FmtVsn, {commit, CommitIn, Meta}) ->
     % NOTE
     % Ensure that outdated commit won't sneak in.
-    Commit = migrate(1, get_version(event), commit, CommitIn),
+    Commit = migrate(get_earliest_supported_version(event), get_version(event), commit, CommitIn),
     {arr, [{str, <<"commit">>}, encode(commit, Commit), encode_commit_meta(FmtVsn, Meta)]}.
 
 encode_commit_meta(_FmtVsn, #{snapshot := SnapshotIn}) ->
     % NOTE
     % Ensure that outdated snapshot won't sneak in.
-    Snapshot = migrate(1, get_version(event), snapshot, SnapshotIn),
+    Snapshot = migrate(get_earliest_supported_version(event), get_version(event), snapshot, SnapshotIn),
     {obj, #{{str, <<"snapshot">>} => encode(snapshot, Snapshot)}};
 encode_commit_meta(_FmtVsn, #{}) ->
     {obj, #{}}.
@@ -310,6 +313,10 @@ migrate(Vsn, TargetVsn, Type, Data) when Vsn < TargetVsn ->
     ok = validate(Type, Migrated),
     migrate(Vsn + 1, TargetVsn, Type, Migrated).
 
+% NOTE
+% Dialyzer correctly evaluates that this function will never be called.
+% Left here for illustrative purposes. It will play its part next time fmtvsn is bumped.
+-dialyzer({nowarn_function, [validate/2]}).
 validate(T, V) ->
     _ = encode(T, V),
     ok.
