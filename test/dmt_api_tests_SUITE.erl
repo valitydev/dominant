@@ -44,6 +44,7 @@
 all() ->
     [
         {group, basic_lifecycle_v5},
+        {group, cacheless_lifecycle},
         {group, repository_client}
     ].
 
@@ -54,6 +55,11 @@ groups() ->
             pull_commit,
             {group, basic_lifecycle},
             {group, error_mapping},
+            retry_commit
+        ]},
+        {cacheless_lifecycle, [sequence], [
+            pull_commit,
+            {group, basic_lifecycle},
             retry_commit
         ]},
         {basic_lifecycle, [sequence, {repeat, 10}, shuffle], [
@@ -90,23 +96,33 @@ end_per_suite(C) ->
 
 -spec init_per_group(group_name(), config()) -> config().
 init_per_group(basic_lifecycle_v5, C) ->
-    [{group_apps, start_with_repository(dmt_api_repository_v5) ++ start_client()} | C];
+    Apps = start_dmt_api([{repository, dmt_api_repository_v5}]),
+    [{group_apps, Apps ++ start_client()} | C];
+init_per_group(cacheless_lifecycle, C) ->
+    Apps = start_dmt_api([
+        {repository, dmt_api_repository_v5},
+        {max_cache_size, 0}
+    ]),
+    [{group_apps, Apps ++ start_client()} | C];
 init_per_group(repository_client, C) ->
-    [{group_apps, start_with_repository(dmt_api_repository_v5) ++ start_client()} | C];
+    Apps = start_dmt_api([{repository, dmt_api_repository_v5}]),
+    [{group_apps, Apps ++ start_client()} | C];
 init_per_group(_, C) ->
     C.
 
-start_with_repository(Repository) ->
-    genlib_app:start_application_with(dmt_api, [
-        {repository, Repository},
-        {services, #{
-            automaton => #{
-                url => "http://machinegun:8022/v1/automaton"
-            }
-        }},
-        % 100Kb
-        {max_cache_size, 102400}
-    ]).
+start_dmt_api(Overrides) ->
+    genlib_app:start_application_with(
+        dmt_api,
+        [
+            {services, #{
+                automaton => #{
+                    url => "http://machinegun:8022/v1/automaton"
+                }
+            }},
+            % 100Kb
+            {max_cache_size, 102400}
+        ] ++ Overrides
+    ).
 
 start_client() ->
     genlib_app:start_application_with(dmt_client, [
@@ -127,6 +143,7 @@ start_client() ->
 -spec end_per_group(group_name(), config()) -> term().
 end_per_group(GroupName, C) when
     GroupName == basic_lifecycle_v5;
+    GroupName == cacheless_lifecycle;
     GroupName == repository_client
 ->
     genlib_app:stop_unload_applications(?config(group_apps, C));
