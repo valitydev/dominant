@@ -14,3 +14,8 @@ namespaces:
                 url: http://dominant:8022/v1/modernizer
 storage:
     type: memory
+
+opentelemetry:
+    exporter:
+        protocol: grpc
+        endpoint: http://jaeger:4317

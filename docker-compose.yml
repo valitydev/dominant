@@ -14,16 +14,38 @@ services:
     hostname: $SERVICE_NAME
     working_dir: $PWD
     depends_on:
-      - machinegun
+      machinegun:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
     ports:
       - "8022"
     command: /sbin/init
 
   machinegun:
-    image: docker.io/rbkmoney/machinegun:c05a8c18cd4f7966d70b6ad84cac9429cdfe37ae
-    ports:
-      - "8022"
+    image: ghcr.io/valitydev/machinegun:sha-46005f8-epic-opentelemetry_adoption
     command: /opt/machinegun/bin/machinegun foreground
     volumes:
       - ./test/machinegun/config.yaml:/opt/machinegun/etc/config.yaml
       - ./test/machinegun/cookie:/opt/machinegun/etc/cookie
+    healthcheck:
+      test: "/opt/machinegun/bin/machinegun ping"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.47
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    healthcheck:
+      test: "/go/bin/all-in-one-linux status"
+      interval: 2s
+      timeout: 1s
+      retries: 20
+    ports:
+      - 4317:4317 # OTLP gRPC receiver
+      - 4318:4318 # OTLP http receiver
+      - 5778:5778
+      - 14250:14250
+      - 16686:16686

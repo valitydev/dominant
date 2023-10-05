@@ -504,7 +504,7 @@ clean_config() ->
 delete_machine(NS, ID) ->
     Opts = #{
         url => "http://machinegun:8022/v1/automaton",
-        event_handler => {scoper_woody_event_handler, #{}}
+        event_handler => {dmt_woody_event_handler, #{}}
     },
     Request = {{mg_proto_state_processing_thrift, 'Automaton'}, 'Remove', {NS, ID}},
     case woody_client:call(Request, Opts, woody_context:new()) of
