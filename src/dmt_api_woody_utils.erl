@@ -31,7 +31,7 @@ make_woody_client(#{url := Url} = Service) ->
 
 -spec get_woody_event_handlers() -> woody:ev_handlers().
 get_woody_event_handlers() ->
-    genlib_app:env(dmt_api, woody_event_handlers, [dmt_woody_event_handler]).
+    genlib_app:env(dmt_api, woody_event_handlers, [scoper_woody_event_handler]).
 
 -spec ensure_woody_deadline_set(woody_context:ctx(), woody_deadline:deadline()) -> woody_context:ctx().
 ensure_woody_deadline_set(WoodyContext, Default) ->

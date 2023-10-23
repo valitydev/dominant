@@ -15,6 +15,10 @@ namespaces:
 storage:
     type: memory
 
+logging:
+    out_type: stdout
+    level: info
+
 opentelemetry:
     exporter:
         protocol: grpc

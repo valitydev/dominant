@@ -23,7 +23,7 @@ stop(_State) ->
 init(_) ->
     {ok, IP} = inet:parse_address(genlib_app:env(?MODULE, ip, "::")),
     HealthCheck = enable_health_logging(genlib_app:env(?MODULE, health_check, #{})),
-    EventHandlers = genlib_app:env(?MODULE, woody_event_handlers, [dmt_woody_event_handler]),
+    EventHandlers = genlib_app:env(?MODULE, woody_event_handlers, [scoper_woody_event_handler]),
     API = woody_server:child_spec(
         ?MODULE,
         #{
