@@ -3,8 +3,6 @@
 # For example, to run with podman put `DOCKER=podman` there.
 -include Makefile.env
 
--include .env
-
 # NOTE
 # Variables specified in `.env` file are used to pick and setup specific
 # component versions, both when building a development image and when running
@@ -18,7 +16,7 @@ DEV_IMAGE_ID = $(file < .image.dev)
 
 DOCKER ?= docker
 DOCKERCOMPOSE ?= docker-compose
-DOCKERCOMPOSE_W_ENV = DEV_IMAGE_TAG=$(DEV_IMAGE_TAG) $(DOCKERCOMPOSE)
+DOCKERCOMPOSE_W_ENV = DEV_IMAGE_TAG=$(DEV_IMAGE_TAG) $(DOCKERCOMPOSE) -f compose.yaml -f compose.tracing.yaml
 REBAR ?= rebar3
 TEST_CONTAINER_NAME ?= testrunner
 
@@ -42,8 +40,7 @@ DOCKER_WC_OPTIONS := -v $(PWD):$(PWD) --workdir $(PWD)
 DOCKER_WC_EXTRA_OPTIONS ?= --rm
 DOCKER_RUN = $(DOCKER) run -t $(DOCKER_WC_OPTIONS) $(DOCKER_WC_EXTRA_OPTIONS)
 
-COMPOSE_FILES = -f compose.yaml -f compose.tracing.yaml
-DOCKERCOMPOSE_RUN = $(DOCKERCOMPOSE_W_ENV) $(COMPOSE_FILES) run --rm $(DOCKER_WC_OPTIONS)
+DOCKERCOMPOSE_RUN = $(DOCKERCOMPOSE_W_ENV) run --rm $(DOCKER_WC_OPTIONS)
 
 # Utility tasks
 
@@ -55,11 +52,11 @@ wc-%: dev-image
 
 #  TODO docker compose down doesn't work yet
 wdeps-shell: dev-image
-	$(DOCKERCOMPOSE_RUN) su; \
+	$(DOCKERCOMPOSE_RUN) $(TEST_CONTAINER_NAME) su; \
 	$(DOCKERCOMPOSE_W_ENV) down
 
 wdeps-%: dev-image
-	$(DOCKERCOMPOSE_RUN) make $*; \
+	$(DOCKERCOMPOSE_RUN) -T $(TEST_CONTAINER_NAME) make $(if $(MAKE_ARGS),$(MAKE_ARGS) $*,$*); \
 	res=$$?; \
 	$(DOCKERCOMPOSE_W_ENV) down; \
 	exit $$res
