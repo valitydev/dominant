@@ -16,8 +16,6 @@ services:
     depends_on:
       machinegun:
         condition: service_healthy
-      jaeger:
-        condition: service_healthy
     ports:
       - "8022"
     command: /sbin/init
