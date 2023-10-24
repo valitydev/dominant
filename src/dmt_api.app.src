@@ -10,7 +10,10 @@
         damsel,
         dmt_core,
         machinery,
-        erl_health
+        erl_health,
+        opentelemetry_api,
+        opentelemetry_exporter,
+        opentelemetry
     ]},
     {mod, {dmt_api, []}},
     {env, []}
