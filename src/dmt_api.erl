@@ -11,6 +11,7 @@
 
 -spec start(application:start_type(), term()) -> {ok, pid()} | {error, term()}.
 start(_StartType, _Args) ->
+    ok = setup_metrics(),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 -spec stop(term()) -> ok.
@@ -97,3 +98,7 @@ enable_health_logging(Check) ->
 -spec get_prometheus_route() -> {iodata(), module(), _Opts :: any()}.
 get_prometheus_route() ->
     {"/metrics/[:registry]", prometheus_cowboy2_handler, []}.
+
+setup_metrics() ->
+    ok = woody_ranch_prometheus_collector:setup(),
+    ok = woody_hackney_prometheus_collector:setup().
