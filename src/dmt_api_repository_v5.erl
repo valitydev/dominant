@@ -188,19 +188,27 @@ apply_commit(
     #domain_conf_Snapshot{version = VersionWas, domain = DomainWas},
     #domain_conf_Commit{ops = Ops} = Commit
 ) ->
+    %% NOTE Actual timestamp of a produced event may differ since it
+    %% is set by MG, but we require it now to construct latest
+    %% snapshot. Thus, we must bear in mind that snapshot saved in
+    %% event metadata always have timestamp originated by this service
+    %% and not the actual commit event from the according machine's
+    %% history.
+    CreatedAt = current_timestamp(),
     case dmt_domain:apply_operations(Ops, DomainWas) of
         {ok, Domain} ->
-            Snapshot = #domain_conf_Snapshot{version = VersionWas + 1, domain = Domain},
-            Event = make_event(Snapshot, Commit),
+            Snapshot = #domain_conf_Snapshot{version = VersionWas + 1, domain = Domain, created_at = CreatedAt},
+            Event = make_event(Snapshot, Commit#domain_conf_Commit{created_at = CreatedAt}),
             {{ok, Snapshot}, #{events => [Event]}};
         {error, Reason} ->
             {{error, {operation_error, Reason}}, #{}}
     end.
 
-check_commit(Version, Commit, #st{snapshot = BaseSnapshot, history = History}) ->
+check_commit(Version, #domain_conf_Commit{ops = Ops}, #st{snapshot = BaseSnapshot, history = History}) ->
+    %% NOTE Match only 'ops' because timestamp will differ
     case maps:get(Version + 1, History) of
-        Commit ->
-            % it's ok, commit alredy applied, lets return this snapshot
+        #domain_conf_Commit{ops = Ops} ->
+            % it's ok, commit already applied, lets return this snapshot
             {dmt_history:travel(Version + 1, History, BaseSnapshot), #{}};
         _ ->
             {{error, head_mismatch}, #{}}
@@ -211,14 +219,23 @@ read_history(#{history := Events}) ->
     lists:foldl(fun apply_event/2, #st{}, Events).
 
 -spec apply_event(machinery:event(event()), st()) -> st().
-apply_event({ID, _CreatedAt, {commit, Commit, Meta}}, #st{history = History} = St) ->
-    StNext = St#st{history = History#{ID => Commit}},
+apply_event({ID, CreatedAt, {commit, Commit0, Meta}}, #st{history = History} = St) ->
+    Commit1 = Commit0#domain_conf_Commit{created_at = historical_timestamp(CreatedAt)},
+    StNext = St#st{history = History#{ID => Commit1}},
     case Meta of
         #{snapshot := Snapshot} ->
             StNext#st{snapshot = Snapshot};
         #{} ->
             StNext
     end.
+
+current_timestamp() ->
+    genlib_rfc3339:format(erlang:system_time(microsecond), microsecond).
+
+historical_timestamp(MachineEventCreatedAt) ->
+    %% NOTE Reuse generic marshaling since timestamp is still same
+    %% rfc3339 binary.
+    machinery_mg_codec:marshal(timestamp, MachineEventCreatedAt).
 
 squash_state(#st{snapshot = BaseSnapshot, history = History}) ->
     case dmt_history:head(History, BaseSnapshot) of

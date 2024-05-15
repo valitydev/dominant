@@ -184,16 +184,12 @@ update(_C) ->
     Object2 = fixture_domain_object(ID, <<"UpdateFixture2">>),
     Ref = fixture_object_ref(ID),
     #domain_conf_Snapshot{version = Version0} = dmt_client:checkout(latest),
-    Timestamp1 = <<"2024-05-14T10:00:00+03:00">>,
-    Commit1 = (dmt_ct_helper:mk_insert_commit(Object1))#domain_conf_Commit{created_at = Timestamp1},
-    Version1 = dmt_client:commit(Version0, Commit1),
-    Timestamp2 = <<"2024-05-14T11:00:00+03:00">>,
-    Commit2 = (dmt_ct_helper:mk_update_commit(Object1, Object2))#domain_conf_Commit{created_at = Timestamp2},
-    Version2 = dmt_client:commit(Version1, Commit2),
+    Version1 = dmt_client:commit(Version0, dmt_ct_helper:mk_insert_commit(Object1)),
+    Version2 = dmt_client:commit(Version1, dmt_ct_helper:mk_update_commit(Object1, Object2)),
     _ = dmt_client_cache:update(),
     Object1 = dmt_client:checkout_object(Version1, Ref),
     Object2 = dmt_client:checkout_object(Version2, Ref),
-    #domain_conf_Snapshot{version = Version2, created_at = Timestamp2} = dmt_client:checkout(latest).
+    #domain_conf_Snapshot{version = Version2} = dmt_client:checkout(latest).
 
 -spec delete(term()) -> term().
 delete(_C) ->
@@ -201,15 +197,11 @@ delete(_C) ->
     Object = fixture_domain_object(ID, <<"DeleteFixture">>),
     Ref = fixture_object_ref(ID),
     #domain_conf_Snapshot{version = Version0} = dmt_client:checkout(latest),
-    Timestamp1 = <<"2024-05-14T10:00:00+03:00">>,
-    Commit1 = (dmt_ct_helper:mk_insert_commit(Object))#domain_conf_Commit{created_at = Timestamp1},
-    Version1 = dmt_client:commit(Version0, Commit1),
-    Timestamp2 = <<"2024-05-14T11:00:00+03:00">>,
-    Commit2 = (dmt_ct_helper:mk_remove_commit(Object))#domain_conf_Commit{created_at = Timestamp2},
-    Version2 = dmt_client:commit(Version1, Commit2),
+    Version1 = dmt_client:commit(Version0, dmt_ct_helper:mk_insert_commit(Object)),
+    Version2 = dmt_client:commit(Version1, dmt_ct_helper:mk_remove_commit(Object)),
     Object = dmt_client:checkout_object(Version1, Ref),
     #domain_conf_ObjectNotFound{} = (catch dmt_client:checkout_object(Version2, Ref)),
-    #domain_conf_Snapshot{version = Version2, created_at = Timestamp2} = dmt_client:checkout(latest).
+    #domain_conf_Snapshot{version = Version2} = dmt_client:checkout(latest).
 
 -spec pull_commit(term()) -> term().
 pull_commit(_C) ->
@@ -219,8 +211,19 @@ pull_commit(_C) ->
     Object = fixture_domain_object(ID, <<"PullFixture">>),
     Timestamp = <<"2024-05-14T10:00:00+03:00">>,
     Commit = (dmt_ct_helper:mk_insert_commit(Object))#domain_conf_Commit{created_at = Timestamp},
+    #domain_conf_Commit{ops = CommitOps} = Commit,
     Version2 = dmt_client:commit(Version1, Commit),
-    #{Version2 := Commit} = dmt_client:pull_range(Version1, ?DEFAULT_LIMIT).
+    PulledCommits = dmt_client:pull_range(Version1, ?DEFAULT_LIMIT),
+    %% Commit matches ops but not given timestamp
+    ?assertMatch(
+        #{Version2 := #domain_conf_Commit{ops = CommitOps, created_at = CreatedAt}} when CreatedAt =/= Timestamp,
+        PulledCommits
+    ),
+    %% All pulled commits must have historical timestamps
+    _ = [
+        ?assertMatch(#domain_conf_Commit{created_at = CreatedAt} when is_binary(CreatedAt), C)
+     || C <- maps:values(PulledCommits)
+    ].
 
 -spec retry_commit(term()) -> term().
 retry_commit(_C) ->
