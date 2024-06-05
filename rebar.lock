@@ -13,7 +13,7 @@
  {<<"ctx">>,{pkg,<<"ctx">>,<<"0.6.0">>},2},
  {<<"damsel">>,
   {git,"https://github.com/valitydev/damsel.git",
-       {ref,"ab292d91f5265237351342675c8f69de17add673"}},
+       {ref,"500c0a2aab6dc90db0c0b7ea4cd9757fd86368d0"}},
   0},
  {<<"dmt_core">>,
   {git,"https://github.com/valitydev/dmt-core.git",
@@ -35,12 +35,12 @@
  {<<"jsx">>,{pkg,<<"jsx">>,<<"3.1.0">>},1},
  {<<"machinery">>,
   {git,"https://github.com/valitydev/machinery-erlang.git",
-       {ref,"19cdc6c846f0ebf65ae193ca0988e353e53fe1d5"}},
+       {ref,"d62ceffbdb266bb4748bed34198e3575bba2dc73"}},
   0},
  {<<"metrics">>,{pkg,<<"metrics">>,<<"1.0.1">>},2},
  {<<"mg_proto">>,
   {git,"https://github.com/valitydev/machinegun-proto",
-       {ref,"96f7f11b184c29d8b7e83cd7646f3f2c13662bda"}},
+       {ref,"3decc8f8b13c9cd1701deab47781aacddd7dbc92"}},
   1},
  {<<"mimerl">>,{pkg,<<"mimerl">>,<<"1.3.0">>},2},
  {<<"opentelemetry">>,{pkg,<<"opentelemetry">>,<<"1.3.0">>},0},
@@ -76,7 +76,7 @@
  {<<"unicode_util_compat">>,{pkg,<<"unicode_util_compat">>,<<"0.7.0">>},2},
  {<<"woody">>,
   {git,"https://github.com/valitydev/woody_erlang.git",
-       {ref,"81219ba5408e1c67f5eaed3c7e566ede42da88d4"}},
+       {ref,"072825ee7179825a4078feb0649df71303c74157"}},
   0}]}.
 [
 {pkg_hash,[
